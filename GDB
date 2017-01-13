@@ -1,0 +1,7 @@
+#!/bin/bash
+export HOST_PLATFORM=linux
+export PATH=$PATH:/home/LoBo2_Razno/ESP32/xtensa-esp32-elf/bin
+export IDF_PATH=/home/LoBo2_Razno/ESP32/esp-idf
+
+#xtensa-esp32-elf-gdb ./build/lua_rtos.elf
+xtensa-esp32-elf-gdb ./build/lua_rtos.elf -b 115200 -ex 'target remote /dev/ttyUSB0'
