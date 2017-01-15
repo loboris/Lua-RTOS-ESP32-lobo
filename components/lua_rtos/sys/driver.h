@@ -45,6 +45,7 @@
 #define PWM_DRIVER_ID   7
 #define WIFI_DRIVER_ID  8
 #define NET_DRIVER_ID   9
+#define OWIRE_DRIVER_ID 10
 
 #define DRIVER_EXCEPTION_BASE(n) (n << 24)
 

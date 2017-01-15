@@ -67,6 +67,12 @@ LUALIB_API int (luaopen_pack) (lua_State* L);
 #define AUXLIB_NVS "nvs"
 LUALIB_API int (luaopen_nvs) (lua_State* L);
 
+#define AUXLIB_BME280 "bme280"
+LUALIB_API int (luaopen_bme280) (lua_State* L);
+
+#define AUXLIB_OW "ow"
+LUALIB_API int (luaopen_ow) (lua_State* L);
+
 // Helper macros
 #define MOD_CHECK_ID( mod, id )\
   if( !platform_ ## mod ## _exists( id ) )\

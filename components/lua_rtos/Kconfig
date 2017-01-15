@@ -309,6 +309,23 @@ menu "Lua RTOS"
 		  	config LUA_RTOS_LUA_USE_UART
 		  	bool "Include uart module in build"
 		  	default y
+
+		  	config LUA_RTOS_LUA_USE_SENSORS
+		  	bool "Include sensors module in build"
+		  	default y
+			menu "Sensors Modules"
+				visible if LUA_RTOS_LUA_USE_SENSORS
+
+				config LUA_RTOS_LUA_USE_BME280
+				depends on LUA_RTOS_LUA_USE_I2C && LUA_RTOS_LUA_USE_SENSORS
+				bool "Include BME280 sensor in build"
+				default y
+
+				config LUA_RTOS_LUA_USE_OW
+				depends on LUA_RTOS_LUA_USE_SENSORS
+				bool "Include 1-wire sensor module in build"
+				default y
+			endmenu
 		endmenu
 		menu "Communication Modules"
 		  	config LUA_RTOS_LUA_USE_NET

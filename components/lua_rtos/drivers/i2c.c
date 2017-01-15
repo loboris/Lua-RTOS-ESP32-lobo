@@ -409,7 +409,10 @@ driver_error_t *i2c_read(int unit, int *transaction, char *data, int len) {
 		return driver_operation_error(I2C_DRIVER, I2C_ERR_INVALID_TRANSACTION, NULL);
     }
 
-    i2c_master_read(cmd, (uint8_t *)data, len, 1);
+    if (len > 1) {
+    	i2c_master_read(cmd, (uint8_t *)data, len-1, 0);
+    }
+   	i2c_master_read_byte(cmd, (uint8_t *)(data+len-1), 1);
 
     mtx_unlock(&i2c[unit].mtx);
 
