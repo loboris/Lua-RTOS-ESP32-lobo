@@ -326,6 +326,13 @@ menu "Lua RTOS"
 				bool "Include 1-wire sensor module in build"
 				default y
 			endmenu
+
+		  	config LUA_RTOS_LUA_USE_LED
+		  	bool "Include LED module in build"
+		    help 
+				Select this to enable the LED module.
+				WS2812 RGB LED is supported for now
+		  	default y
 		endmenu
 		menu "Communication Modules"
 		  	config LUA_RTOS_LUA_USE_NET

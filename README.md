@@ -2,7 +2,17 @@
 
 ###### with some added functionality
 
+## Added modules
 
+* sensors
+  * support for BME280 temperature, humidity and pressure sensors in I2C mode
+  * support for 1-wire devices
+  * DS1820 temperature sensors support (including parasite power support)
+
+* led
+  * support for WS2812 - NeoPixel RGB leds
+
+---
 
 # What's Lua RTOS?
 

@@ -80,6 +80,10 @@ SECTIONS {
     KEEP(*(.owire_errors))
     LONG(0) LONG(0)
 
+    ws2812_errors = ABSOLUTE(.);
+    KEEP(*(.ws2812_errors))
+    LONG(0) LONG(0)
+
     net_error_map = ABSOLUTE(.);
     KEEP(*(.net_error_map))
     LONG(0) LONG(0)

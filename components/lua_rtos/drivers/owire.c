@@ -45,7 +45,7 @@ driver_error_t *owire_lock_resources(int8_t pin, void *resources) {
 
     owire_pins(pin, &owire_resources->pin);
 
-    // Lock this pins
+    // Lock owire pin
     if ((lock_error = driver_lock(OWIRE_DRIVER, pin, GPIO_DRIVER, owire_resources->pin))) {
     	// Revoked lock on pin
     	return driver_lock_error(OWIRE_DRIVER, lock_error);
