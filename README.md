@@ -20,6 +20,9 @@
 * io
   * added support for ymodem file transfer (io.ymsend & io.ymreceive functions)
 
+* i2c
+  * added high level functions: send, receive, sendreceive
+
 ---
 
 # What's Lua RTOS?
