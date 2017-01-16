@@ -193,9 +193,7 @@ extern char *i2c_errors[];
  * sda: SDA pin
  * sdc: SDC pin
  * bme280_instance = bme280.setup(i2c_id, i2c_speed, sda, scl)
- * Notes:
- * - uses i2c driver for operation
- * - first read (get) can return wrong values
+ * Note: uses i2c driver for operation
  */
 //====================================
 static int bme280_setup(lua_State* L)
@@ -224,6 +222,34 @@ static int bme280_setup(lua_State* L)
     luaL_getmetatable(L, "bme280");
     lua_setmetatable(L, -2);
     return 1;
+}
+
+//--------------------------------------------------------------
+static void _bme280_get(double *temp, double *hum, double *pres)
+{
+	// The variable used to read uncompensated temperature
+	s32 v_data_uncomp_temp_s32 = BME280_INIT_VALUE;
+	// The variable used to read uncompensated pressure
+	s32 v_data_uncomp_pres_s32 = BME280_INIT_VALUE;
+	// The variable used to read uncompensated humidity
+	s32 v_data_uncomp_hum_s32 = BME280_INIT_VALUE;
+
+	s32 com_rslt = ERROR;
+
+	if (p_bme280->chip_id == BME280_CHIP_ID) {
+		if (p_bme280->mode != BME280_NORMAL_MODE)
+			com_rslt = bme280_get_forced_uncomp_pressure_temperature_humidity(
+					&v_data_uncomp_pres_s32, &v_data_uncomp_temp_s32, &v_data_uncomp_hum_s32);
+		else com_rslt = bme280_read_uncomp_pressure_temperature_humidity(
+				&v_data_uncomp_pres_s32, &v_data_uncomp_temp_s32, &v_data_uncomp_hum_s32);
+		if (com_rslt == 0) {
+			//printf("BME280 READ uncomp %d, data: %d  %d  %d\r\n", com_rslt, v_data_uncomp_pres_s32, v_data_uncomp_temp_s32, v_data_uncomp_hum_s32);
+			*temp = bme280_compensate_temperature_double(v_data_uncomp_temp_s32);
+			*pres = bme280_compensate_pressure_double(v_data_uncomp_pres_s32);
+			*hum = bme280_compensate_humidity_double(v_data_uncomp_hum_s32);
+		}
+	}
+
 }
 
 /*
@@ -301,6 +327,15 @@ static int bme280_doinit(lua_State* L)
 	}
 
 	// **************** END INITIALIZATION ****************
+	if (com_rslt == 0) {
+		// read measured values, first read after init returns wrong values
+	    msdelay(sby);
+		double temp = 0.0;
+		double pres = 0.0;
+		double hum = 0.0;
+		_bme280_get(&temp, &hum, &pres);
+	}
+
 	lua_pushinteger(L, com_rslt);
 	return 1;
 }
@@ -415,30 +450,10 @@ static int bme280_get(lua_State* L)
     p_bme280 = (struct bme280_user_data_t *)luaL_checkudata(L, 1, "bme280");
     luaL_argcheck(L, p_bme280, 1, "i2c transaction expected");
 
-	// The variable used to read uncompensated temperature
-	s32 v_data_uncomp_temp_s32 = BME280_INIT_VALUE;
-	// The variable used to read uncompensated pressure
-	s32 v_data_uncomp_pres_s32 = BME280_INIT_VALUE;
-	// The variable used to read uncompensated humidity
-	s32 v_data_uncomp_hum_s32 = BME280_INIT_VALUE;
-
 	double temp = 0.0;
 	double pres = 0.0;
 	double hum = 0.0;
-	s32 com_rslt = ERROR;
-
-	if (p_bme280->chip_id == BME280_CHIP_ID) {
-		if (p_bme280->mode != BME280_NORMAL_MODE)
-			com_rslt = bme280_get_forced_uncomp_pressure_temperature_humidity(
-					&v_data_uncomp_pres_s32, &v_data_uncomp_temp_s32, &v_data_uncomp_hum_s32);
-		else com_rslt = bme280_read_uncomp_pressure_temperature_humidity(
-				&v_data_uncomp_pres_s32, &v_data_uncomp_temp_s32, &v_data_uncomp_hum_s32);
-
-		printf("BME280 READ uncomp %d, data: %d  %d  %d\r\n", com_rslt, v_data_uncomp_pres_s32, v_data_uncomp_temp_s32, v_data_uncomp_hum_s32);
-		temp = bme280_compensate_temperature_double(v_data_uncomp_temp_s32);
-		pres = bme280_compensate_pressure_double(v_data_uncomp_pres_s32);
-		hum = bme280_compensate_humidity_double(v_data_uncomp_hum_s32);
-	}
+	_bme280_get(&temp, &hum, &pres);
 
 	lua_pushnumber(L, temp);
 	lua_pushnumber(L, hum);
@@ -520,7 +535,7 @@ int luaopen_bme280(lua_State* L) {
     return 1;
 }
 
-LIB_INIT(BME280, bme280, luaopen_bme280);
+MODULE_REGISTER_UNMAPPED(BME280, bme280, luaopen_bme280);
 
 #endif
 
@@ -531,6 +546,7 @@ LIB_INIT(BME280, bme280, luaopen_bme280);
 */
 #include "drivers/owire.h"
 #include "sensors/ds1820.h"
+#include "time.h"
 
 static unsigned char ow_numdev = 0;
 static unsigned char ds1820_numdev = 0;
@@ -683,6 +699,7 @@ static int lsensor_18b20_gettemp( lua_State* L )
 		return 2;
 	  }
   }
+  ds_measure_time = 0;
 
   // Read temperature from selected device
   // Read temperature from ROM address and store it to temper variable
@@ -712,6 +729,7 @@ static int lsensor_18b20_startm( lua_State* L )
     return 1;
   }
 
+  _set_measure_time(12);
   // Start temperature conversion on all devices on one bus
   TM_DS18B20_StartAll();
 
@@ -736,16 +754,16 @@ static int lsensor_18b20_get( lua_State* L )
 
   // Check if measurement finished
   if (ds_parasite_pwr) {
- 	  struct timeval now;
-	  gettimeofday(&now, NULL);
-	  if ((now.tv_usec - ds_start_measure_time) < (ds_measure_time * 1000)) {
-		lua_pushinteger(L, -9999);
-		lua_pushinteger(L, owError_NotReady);
-		return 2;
+	  if (ds_measure_time != 0) {
+		  if ((clock() - ds_start_measure_time) < ds_measure_time) {
+			lua_pushinteger(L, -9999);
+			lua_pushinteger(L, owError_NotReady);
+			return 2;
+		  }
+		  owdevice_input();
+		  ds_start_measure_time = 0;
+		  msdelay(10);
 	  }
-	  owdevice_input();
-	  ds_start_measure_time = 0;
-	  msdelay(10);
   }
   else {
 	  if (TM_OneWire_ReadBit() == 0) {
@@ -754,6 +772,7 @@ static int lsensor_18b20_get( lua_State* L )
 		return 2;
 	  }
   }
+  ds_measure_time = 0;
 
   owState_t stat;
   double temper;
@@ -771,7 +790,7 @@ static int lsensor_18b20_get( lua_State* L )
 
 /* Search for 1-wire devices on 1-wire bus
  * Returns number of found devices
- * num = ow.search()
+ * numdev = ow.search()
  */
 //==========================================
 static int lsensor_ow_search( lua_State* L )
@@ -834,8 +853,9 @@ static int lsensor_ow_init( lua_State* L )
 
 /* Get device ROM of the specified device (8 bytes)
  * to Lua table or string
- * rom_table = ow.getrom(id)
- * rom_string = ow.getrom(id, "*h")
+ * rom_string = ow.getrom(id)
+ * rom_string = ow.getrom(id, "*s")
+ * rom_table = ow.getrom(id, "*t")
  * Returns empty table or string if wrong device id is given
  */
 //==========================================
@@ -848,22 +868,22 @@ static int lsensor_ow_getrom( lua_State* L )
 
   dev = luaL_checkinteger( L, 1 );
 
-  int hexout = 0;
+  int strout = 1;
   if (lua_isstring(L, 2)) {
       const char* sarg;
       size_t sarglen;
       sarg = luaL_checklstring(L, 2, &sarglen);
       if (sarglen == 2) {
-      	if (strstr(sarg, "*h") != NULL) hexout = 1;
+      	if (strstr(sarg, "*t") != NULL) strout = 0;
       }
   }
-  if (hexout) luaL_buffinit(L, &b);
+  if (strout) luaL_buffinit(L, &b);
   else lua_newtable(L);
 
   if (check_dev(dev, 0)) {
 	  for (i = 0; i < 8; i++) {
-		  if (hexout) {
-			sprintf(hbuf, "%02x;", ow_roms[dev-1][i]);
+		  if (strout) {
+			sprintf(hbuf, "%02x", ow_roms[dev-1][i]);
 			luaL_addstring(&b, hbuf);
 		  }
 		  else {
@@ -872,12 +892,16 @@ static int lsensor_ow_getrom( lua_State* L )
 		  }
 	  }
   }
-  if (hexout) luaL_pushresult(&b);
+  if (strout) luaL_pushresult(&b);
   return 1;
 }
 
 /* list devices detected on ow bus
- * device ROM and type (if known) are printed
+ * prints device ROM and type (if known)
+ * or returns the table with roms strings if "*t" parameter is given
+ *
+ * ow.listdev()  prints to console
+ * rom_table = ow.listdev("*t")
  */
 //==========================================
 static int lsensor_ow_listdev( lua_State* L )
@@ -885,23 +909,40 @@ static int lsensor_ow_listdev( lua_State* L )
   unsigned char code;
   int i,j;
   char family[16];
+  int tblout = 0;
+  char strbuf[20];
 
-  for (i=0;i<ow_numdev;i++) {
-	  printf("%02d [", i+1);
-	  for (j = 0; j < 8; j++) {
-			printf("%02x", ow_roms[i][j]);
-			if (j < 7) printf(" ");
-	  }
-	  printf("] ");
-	  code = TM_DS18B20_Is(&(ow_roms[i][0]));
-	  if (code) {
-		  TM_DS18B20_Family(code, family);
-		  printf("%s\r\n", family);
-	  }
-	  else printf("unknown\r\n");
+  if (lua_isstring(L, 1)) {
+      const char* sarg;
+      size_t sarglen;
+      sarg = luaL_checklstring(L, 1, &sarglen);
+      if (sarglen == 2) {
+      	if (strstr(sarg, "*t") != NULL) tblout = 1;
+      }
   }
-  return 0;
+  if (tblout) lua_newtable(L);
+  for (i=0;i<ow_numdev;i++) {
+	  for (j = 0; j < 8; j++) {
+			sprintf(strbuf+(j*2), "%02x", ow_roms[i][j]);
+	  }
+	  if (tblout) {
+		  lua_pushstring( L, strbuf );
+		  lua_rawseti(L,-2,i + 1);
+	  }
+	  else {
+		  printf("%02d [%s]", i+1, strbuf);
+		  code = TM_DS18B20_Is(&(ow_roms[i][0]));
+		  if (code) {
+			  TM_DS18B20_Family(code, family);
+			  printf(" %s\r\n", family);
+		  }
+		  else printf(" unknown\r\n");
+	  }
+  }
+  if (tblout) return 1;
+  else return 0;
 }
+
 
 //====================================================================================
 
@@ -931,7 +972,7 @@ LUALIB_API int luaopen_ow(lua_State *L) {
 	return 0;
 }
 
-LUA_OS_MODULE(OW, ow, low_map);
+MODULE_REGISTER_MAPPED(OW, ow, low_map, luaopen_ow);
 
 #endif
 

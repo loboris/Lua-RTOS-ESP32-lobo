@@ -5,7 +5,7 @@
  */
 
 #include "sensors/ds1820.h"
-#include "sys/time.h"
+#include "time.h"
 #include <stdio.h>
 #include "drivers/owire.h"
 
@@ -81,7 +81,6 @@ void TM_DS18B20_StartAll() {
   TM_OneWire_WriteByte(ONEWIRE_CMD_RPWRSUPPLY);
   if (TM_OneWire_ReadBit() == 0) ds_parasite_pwr = 1;
   else ds_parasite_pwr = 0;
-  //vm_log_debug("DS18B20 Parasite Pwr = %d", ds_parasite_pwr);
 
   // Reset pulse
   if (TM_OneWire_Reset() != 0) return;
@@ -92,9 +91,7 @@ void TM_DS18B20_StartAll() {
   if (ds_parasite_pwr) {
 	  gpio_set_direction(OW_DEVICE.pin, GPIO_MODE_OUTPUT);
 	  gpio_set_level(OW_DEVICE.pin,1);
- 	  struct timeval now;
-	  gettimeofday(&now, NULL);
-	  ds_start_measure_time = now.tv_usec;
+	  ds_start_measure_time = clock();
   }
 }
 

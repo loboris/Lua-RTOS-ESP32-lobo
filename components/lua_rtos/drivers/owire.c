@@ -18,17 +18,14 @@ TM_One_Wire_t OW_DEVICE;
 #define OWIRE_LAST_PIN	31
 
 // This macro gets a reference for this driver into drivers array
-#define OWIRE_DRIVER driver_get("owire")
+#define OWIRE_DRIVER driver_get_by_name("owire")
 
 // Driver locks
 driver_unit_lock_t owire_locks[CPU_LAST_GPIO];
 
 // Driver message errors
-static const driver_message_t owire_errors[] = {
-	{"",""},
-	{"can't setup","CannotSetup"},
-	{"invalid pin","InvalidPin"},
-};
+DRIVER_REGISTER_ERROR(OWIRE, owire, CannotSetup, "can't setup", OWIRE_ERR_CANT_INIT);
+DRIVER_REGISTER_ERROR(OWIRE, owire, InvalidChannel, "invalid channel", OWIRE_ERR_INVALID_CHANNEL);
 
 // Get the pins used by an ONE WIRE channel
 void owire_pins(int8_t owpin, uint8_t *pin) {
@@ -77,7 +74,7 @@ driver_error_t *owire_setup_pin(int8_t pin) {
     return NULL;
 }
 
-DRIVER_REGISTER(OWIRE,owire,owire_errors,owire_locks,NULL,NULL);
+DRIVER_REGISTER(OWIRE,owire,owire_locks,NULL,NULL);
 
 //******************
 // ONEWIRE FUNCTIONS

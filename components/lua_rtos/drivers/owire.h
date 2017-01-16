@@ -12,15 +12,14 @@
 #include <sys/driver.h>
 #include <drivers/cpu.h>
 
-
 // Resources used by ONE WIRE
 typedef struct {
 	uint8_t pin;
 } owire_resources_t;
 
 // ONE WIRE driver errors
-#define OWIRE_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(OWIRE_DRIVER_ID) |  1)
-#define OWIRE_ERR_INVALID_CHANNEL          (DRIVER_EXCEPTION_BASE(OWIRE_DRIVER_ID) |  2)
+#define OWIRE_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(OWIRE_DRIVER_ID) |  0)
+#define OWIRE_ERR_INVALID_CHANNEL          (DRIVER_EXCEPTION_BASE(OWIRE_DRIVER_ID) |  1)
 
 /* OneWire commands */
 #define ONEWIRE_CMD_RSCRATCHPAD		0xBE
