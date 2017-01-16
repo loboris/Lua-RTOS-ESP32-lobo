@@ -181,7 +181,7 @@ static void uart_pin_config(int8_t unit, uint8_t rx, uint8_t tx) {
 static int IRAM_ATTR queue_byte(int8_t unit, uint8_t byte, int *signal) {
 	*signal = 0;
 
-    if (unit == CONSOLE_UART) {
+	if ((unit == CONSOLE_UART) && (!status_get(STATUS_UART_QUE_NOTFILTER))) {
         if (byte == 0x04) {
             if (!status_get(STATUS_LUA_RUNNING)) {
             	uart_lock(CONSOLE_UART);

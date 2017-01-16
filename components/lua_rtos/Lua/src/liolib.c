@@ -712,6 +712,8 @@ static const LUA_REG_TYPE flib[] = {
   { LSTRKEY( "seek" 	  ),			LFUNCVAL( f_seek 	 ) },
   { LSTRKEY( "setvbuf" 	  ),			LFUNCVAL( f_setvbuf  ) },
   { LSTRKEY( "write" 	  ),			LFUNCVAL( f_write 	 ) },
+  { LSTRKEY( "ymreceive" ),				LFUNCVAL( f_ymreceive  ) },
+  { LSTRKEY( "ymsend"    ),				LFUNCVAL( f_ymsend     ) },
   { LNILKEY, LNILVAL }
 };
 

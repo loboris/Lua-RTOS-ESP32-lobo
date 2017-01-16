@@ -1,8 +1,10 @@
+---
 [Clone of the Whitecat's Lua-RTOS-ESP32 repository] (https://github.com/whitecatboard/Lua-RTOS-ESP32)
+---
 
 ###### with some added functionality
 
-## Added modules
+### Added modules
 
 * sensors
   * support for BME280 temperature, humidity and pressure sensors in I2C mode
@@ -11,6 +13,11 @@
 
 * led
   * support for WS2812 - NeoPixel RGB leds
+
+### Modified modules
+
+* io
+  * added support for ymodem file transfer (io.ymsend & io.ymreceive functions)
 
 ---
 

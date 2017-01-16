@@ -12,6 +12,11 @@
 #include <sys/syslog.h>
 #include <drivers/uart.h>
 
+#include <errno.h>
+#include "sys/status.h"
+#include "drivers/gpio.h"
+#include "ymodem.h"
+
 #define l_getc(f)		getc(f)
 #define l_lockfile(f)   ((void)0)
 #define l_unlockfile(f)	((void)0)
@@ -199,6 +204,89 @@ static int f_send (lua_State *L) {
     }
 
     return 0;
+}
+
+static int f_ymreceive (lua_State *L) {
+    const char *filename = luaL_optstring(L, 1, "");
+    int result;
+    char newname[128];
+    char origname[128] = {"\0"};
+
+    if (strlen(filename) == 0) sprintf(newname,"_ym_recv.tmp");
+    else sprintf(newname,"%s", filename);
+
+    FILE *f= fopen(newname, "w");
+    if (f) {
+        uart_lock(CONSOLE_UART);
+
+        // Clear received buffer
+		status_set(STATUS_UART_QUE_NOTFILTER);
+        uart_consume(CONSOLE_UART);
+
+        result = Ymodem_Receive(f, YM_MAX_FILESIZE, origname, 0);
+
+        fclose(f);
+        uart_consume(CONSOLE_UART);
+        uart_writes(CONSOLE_UART, "\r\n");
+		status_clear(STATUS_UART_QUE_NOTFILTER);
+        uart_unlock(CONSOLE_UART);
+
+        if (result <= 0) {
+            return luaL_error(L, "error receiving file (%d)", result);
+        }
+        if ((strlen(filename) == 0) && (strlen(origname) != 0)) {
+        	if (rename(newname,origname) < 0) lua_pushboolean(L, false);
+        	else lua_pushboolean(L, true);
+        }
+    	else lua_pushboolean(L, true);
+    } else {
+        return luaL_error(L, strerror(errno));
+    }
+
+	lua_pushstring(L, origname);
+    return 2;
+}
+
+static int f_ymsend (lua_State *L) {
+    const char *filename = luaL_optstring(L, 1, "");
+    char *basename;
+    lua_Integer result;
+    struct stat sb;
+
+    if (strlen(filename) == 0) return 0;
+
+    basename = strrchr(filename, '/');
+    if (basename == NULL) basename = (char *)filename;
+    else basename++;
+    if (strlen(basename) == 0) return 0;
+
+    if (stat(filename, &sb) != 0) {
+        return luaL_error(L, strerror(errno));
+    }
+
+    FILE *f= fopen(filename, "r");
+    if (f) {
+    	uart_lock(CONSOLE_UART);
+		status_set(STATUS_UART_QUE_NOTFILTER);
+
+    	result = Ymodem_Transmit(basename, sb.st_size, f);
+    	if (result == 0) result = sb.st_size;
+		#if USE_LED_ACT
+		gpio_pin_clr(LED_ACT);
+		#endif
+
+        fclose(f);
+
+        uart_writes(CONSOLE_UART, "\r\n");
+		status_clear(STATUS_UART_QUE_NOTFILTER);
+        uart_unlock(CONSOLE_UART);
+
+    } else {
+        return luaL_error(L, strerror(errno));
+    }
+
+    lua_pushinteger(L, result);
+    return 1;
 }
 
 #undef l_getc
