@@ -11,8 +11,6 @@
 
 #include <sys/syslog.h>
 #include <drivers/uart.h>
-
-#include <errno.h>
 #include "sys/status.h"
 #include "drivers/gpio.h"
 #include "ymodem.h"

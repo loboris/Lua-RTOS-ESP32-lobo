@@ -1,3 +1,4 @@
+#if 0
 #include "unity.h"
 
 #include <errno.h>
@@ -111,16 +112,17 @@ TEST_CASE("i2c-master", "[i2c master]") {
 
 	// Write some data
 	for(i=0;i<100;i++) {
-		eeprom_24c256d_write(0x00,i,i);
+		eeprom_24c256d_write(0x00,i,i*2);
 
 		// This is only for test purposes
 		// It should be done by ACKNOWLEDGE POLLING
-		delay(20);
+		delay(30);
 	}
 
 	// Read write data and verify
 	for(i=0;i<100;i++) {
 		data = eeprom_24c256d_read(0x00,i);
-		TEST_ASSERT_MESSAGE(data == i, "invalid read data");
+		TEST_ASSERT_MESSAGE(data == i*2, "invalid read data");
 	}
 }
+#endif

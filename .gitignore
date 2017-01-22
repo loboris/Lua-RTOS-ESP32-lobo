@@ -18,6 +18,7 @@ GPATH
 \#*#
 
 build/
+temp/
 *.dis
 *.elf
 *.map

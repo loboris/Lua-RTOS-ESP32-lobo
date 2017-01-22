@@ -9,6 +9,7 @@
 #include "esp_system.h"
 #include "driver/gpio.h"
 #include "rom/ets_sys.h"
+#include <drivers/sensor.h>
 
 //#define DS18B20ALARMFUNC
 //#define DS18B20_USE_CRC
@@ -63,12 +64,14 @@ typedef enum {
   TM_DS18B20_Resolution_12bits = 	12  /*!< DS18B20 12 bits resolution */
 } TM_DS18B20_Resolution_t;
 
-int ds_parasite_pwr;
-uint32_t ds_start_measure_time;
+driver_error_t *ds1820_setup(sensor_instance_t *unit);
+driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values);
+driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting);
 
-unsigned char TM_DS18B20_GetResolution(unsigned char *ROM);
-owState_t TM_DS18B20_SetResolution(unsigned char *ROM, TM_DS18B20_Resolution_t resolution);
-void TM_DS18B20_StartAll();
-owState_t TM_DS18B20_Read(unsigned char *ROM, double *destination);
 unsigned char TM_DS18B20_Is(unsigned char *ROM);
-void TM_DS18B20_Family(unsigned char code, char *dsfamily);
+
+void ds1820_getrom(sensor_instance_t *unit, char *ROM);
+void ds1820_gettype(sensor_instance_t *unit, char *buf);
+uint8_t ds1820_get_res(sensor_instance_t *unit);
+void ow_list(sensor_instance_t *unit);
+uint8_t ds1820_numdev(sensor_instance_t *unit);

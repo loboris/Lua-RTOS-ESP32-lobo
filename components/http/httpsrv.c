@@ -43,6 +43,7 @@
 #include <string.h>
 #include <dirent.h>
 #include <sys/syslog.h>
+#include <sys/panic.h>
 
 #define PORT           80
 #define SERVER         "lua-rtos-http-server/1.0"

@@ -4,17 +4,45 @@
  * based on TM_ONEWIRE (author  Tilen Majerle)
  */
 
+#include <math.h>
+#include <string.h>
+#include <stdio.h>
+
 #include "sensors/ds1820.h"
 #include "time.h"
-#include <stdio.h>
 #include "drivers/owire.h"
+#include <sys/driver.h>
 
-int ds_parasite_pwr = 0;
-uint32_t ds_start_measure_time = 0;
+static int ds_parasite_pwr = 0;
+static uint32_t ds_start_measure_time = 0;
+static uint32_t ds_measure_time;
+extern TM_One_Wire_Devices_t ow_devices[MAX_ONEWIRE_PINS];
 
 #ifdef DS18B20ALARMFUNC
 static unsigned char ow_alarm_device [MAX_ONEWIRE_SENSORS][8];
 #endif
+
+
+// Sensor specification and registration
+const sensor_t __attribute__((used,unused,section(".sensors"))) ds1820_sensor = {
+	.id = "DS1820",
+	.interface = OWIRE_INTERFACE,
+	.data = {
+		{.id = "temperature", .type = SENSOR_DATA_FLOAT},
+		{.id = "rom", .type = SENSOR_DATA_EXFUNC},
+		{.id = "type", .type = SENSOR_DATA_EXFUNC},
+		{.id = "resolution", .type = SENSOR_DATA_EXFUNC},
+		{.id = "listdev", .type = SENSOR_DATA_EXFUNC},
+		{.id = "numdev", .type = SENSOR_DATA_EXFUNC},
+	},
+	.settings = {
+		{.id = "resolution", .type = SENSOR_DATA_INT},
+	},
+	.setup = ds1820_setup,
+	.acquire = ds1820_acquire,
+	.set = ds1820_set
+};
+
 
 //*********************
 // TM_DS18B20_Functions
@@ -32,8 +60,8 @@ unsigned char TM_DS18B20_Is(unsigned char *ROM) {
   return 0;
 }
 
-//------------------------------------------------------
-void TM_DS18B20_Family(unsigned char code, char *dsfamily) {
+//-----------------------------------------------------------------
+static void TM_DS18B20_Family(unsigned char code, char *dsfamily) {
   switch (code) {
   	  case DS18B20_FAMILY_CODE:
 	  	  sprintf(dsfamily, "DS18B20");
@@ -52,51 +80,62 @@ void TM_DS18B20_Family(unsigned char code, char *dsfamily) {
   }
 }
 
-/*
-//-----------------------------------------------
-static owState_t TM_DS18B20_Start(unsigned char *ROM) {
+//------------------------------------
+static int getPowerMode(uint8_t dev) {
+	// Reset pulse
+	if (TM_OneWire_Reset(dev) != 0) return owError_NoDevice;
+	// Skip rom
+	TM_OneWire_WriteByte(dev, ONEWIRE_CMD_SKIPROM);
+	// Test parasite power
+	TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RPWRSUPPLY);
+	if (TM_OneWire_ReadBit(dev) == 0) ds_parasite_pwr = 1;
+	else ds_parasite_pwr = 0;
+	return ow_OK;
+}
+
+//------------------------------------------------------------------
+static owState_t TM_DS18B20_Start(uint8_t dev, unsigned char *ROM) {
   // Check if device is DS18B20
   if (!TM_DS18B20_Is(ROM)) {
     return owError_Not18b20;
   }
+  if (getPowerMode(dev)) return owError_NoDevice;
+
   // Reset line
-  if (TM_OneWire_Reset() != 0) {
-    return owError_NoDevice;
-  }
+  if (TM_OneWire_Reset(dev) != 0) return owError_NoDevice;
+
   // Select ROM number
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   // Start temperature conversion
-  TM_OneWire_WriteByte(DS18B20_CMD_CONVERTTEMP);
-  return ow_OK;
-}
-*/
+  TM_OneWire_WriteByte(dev, DS18B20_CMD_CONVERTTEMP);
 
-//--------------------------
-void TM_DS18B20_StartAll() {
-  // Reset pulse
-  if (TM_OneWire_Reset() != 0) return;
-  // Skip rom
-  TM_OneWire_WriteByte(ONEWIRE_CMD_SKIPROM);
-  // Test parasite power
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RPWRSUPPLY);
-  if (TM_OneWire_ReadBit() == 0) ds_parasite_pwr = 1;
-  else ds_parasite_pwr = 0;
-
-  // Reset pulse
-  if (TM_OneWire_Reset() != 0) return;
-  // Skip rom
-  TM_OneWire_WriteByte(ONEWIRE_CMD_SKIPROM);
-  // Start conversion on all connected devices
-  TM_OneWire_WriteByte(DS18B20_CMD_CONVERTTEMP);
   if (ds_parasite_pwr) {
-	  gpio_set_direction(OW_DEVICE.pin, GPIO_MODE_OUTPUT);
-	  gpio_set_level(OW_DEVICE.pin,1);
+	  owdevice_pinpower(dev);
 	  ds_start_measure_time = clock();
   }
+  return ow_OK;
 }
 
-//------------------------------------------------------------------
-owState_t TM_DS18B20_Read(unsigned char *ROM, double *destination) {
+//-------------------------------------------------
+static owState_t TM_DS18B20_StartAll(uint8_t dev) {
+  if (getPowerMode(dev)) return owError_NoDevice;
+
+  // Reset pulse
+  if (TM_OneWire_Reset(dev) != 0) return owError_NoDevice;;
+  // Skip rom
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_SKIPROM);
+  // Start conversion on all connected devices
+  TM_OneWire_WriteByte(dev, DS18B20_CMD_CONVERTTEMP);
+
+  if (ds_parasite_pwr) {
+	  owdevice_pinpower(dev);
+	  ds_start_measure_time = clock();
+  }
+  return ow_OK;
+}
+
+//--------------------------------------------------------------------------------------
+static owState_t TM_DS18B20_Read(uint8_t dev, unsigned char *ROM, double *destination) {
   unsigned int temperature;
   unsigned char resolution;
   char digit, minus = 0;
@@ -110,23 +149,23 @@ owState_t TM_DS18B20_Read(unsigned char *ROM, double *destination) {
     return owError_Not18b20;
   }
   /* Check if line is released, if it is, then conversion is complete */
-  if (!TM_OneWire_ReadBit()) {
+  if (!TM_OneWire_ReadBit(dev)) {
     /* Conversion is not finished yet */
     return owError_NotFinished; 
   }
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Read scratchpad command by onewire protocol */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RSCRATCHPAD);
 
   /* Get data */
   for (i = 0; i < 9; i++) {
     /* Read byte by byte */
-    data[i] = TM_OneWire_ReadByte();
+    data[i] = TM_OneWire_ReadByte(dev);
   }
   /* Calculate CRC */
   crc = TM_OneWire_CRC8(data, 8);
@@ -139,7 +178,7 @@ owState_t TM_DS18B20_Read(unsigned char *ROM, double *destination) {
   /* First two bytes of scratchpad are temperature values */
   temperature = data[0] | (data[1] << 8);
   /* Reset line */
-  TM_OneWire_Reset();
+  TM_OneWire_Reset(dev);
   if (*ROM != DS18S20_FAMILY_CODE) {
 	  /* Check if temperature is negative */
 	  if (temperature & 0x8000) {
@@ -207,8 +246,8 @@ owState_t TM_DS18B20_Read(unsigned char *ROM, double *destination) {
   return ow_OK;
 }
 
-//----------------------------------------------------------
-unsigned char TM_DS18B20_GetResolution(unsigned char *ROM) {
+//------------------------------------------------------------------------------
+static unsigned char TM_DS18B20_GetResolution(uint8_t dev, unsigned char *ROM) {
   unsigned char conf;
 
   if (!TM_DS18B20_Is(ROM)) {
@@ -218,52 +257,50 @@ unsigned char TM_DS18B20_GetResolution(unsigned char *ROM) {
   if (*ROM == DS18S20_FAMILY_CODE) return TM_DS18B20_Resolution_12bits;
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Read scratchpad command by onewire protocol */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RSCRATCHPAD);
 
   /* Ignore first 4 bytes */
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
 
   /* 5th byte of scratchpad is configuration register */
-  conf = TM_OneWire_ReadByte();
+  conf = TM_OneWire_ReadByte(dev);
 
   /* Return 9 - 12 value according to number of bits */
   return ((conf & 0x60) >> 5) + 9;
 }
 
-//------------------------------------------------------------------------------------------
-owState_t TM_DS18B20_SetResolution(unsigned char *ROM, TM_DS18B20_Resolution_t resolution) {
+//--------------------------------------------------------------------------------------------------------------
+static owState_t TM_DS18B20_SetResolution(uint8_t dev, unsigned char *ROM, TM_DS18B20_Resolution_t resolution) {
   unsigned char th, tl, conf;
-  if (!TM_DS18B20_Is(ROM)) {
-    return owError_Not18b20;
-  }
 
+  if (!TM_DS18B20_Is(ROM)) return owError_Not18b20;
+  if (getPowerMode(dev)) return owError_NoDevice;
   if (*ROM == DS18S20_FAMILY_CODE) return ow_OK;
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
-    return owError_NoDevice;
-  }
+  if (TM_OneWire_Reset(dev) != 0) return owError_NoDevice;
+
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Read scratchpad command by onewire protocol */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RSCRATCHPAD);
 
   /* Ignore first 2 bytes */
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
 
-  th = TM_OneWire_ReadByte();
-  tl = TM_OneWire_ReadByte();
-  conf = TM_OneWire_ReadByte();
+  th = TM_OneWire_ReadByte(dev);
+  tl = TM_OneWire_ReadByte(dev);
+  conf = TM_OneWire_ReadByte(dev);
 
   if (resolution == TM_DS18B20_Resolution_9bits) {
     conf &= ~(1 << DS18B20_RESOLUTION_R1);
@@ -280,36 +317,29 @@ owState_t TM_DS18B20_SetResolution(unsigned char *ROM, TM_DS18B20_Resolution_t r
   }
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
-    return owError_NoDevice;
-  }
+  if (TM_OneWire_Reset(dev) != 0) return owError_NoDevice;
+
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Write scratchpad command by onewire protocol, only th, tl and conf register can be written */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_WSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_WSCRATCHPAD);
 
   /* Write bytes */
-  TM_OneWire_WriteByte(th);
-  TM_OneWire_WriteByte(tl);
-  TM_OneWire_WriteByte(conf);
+  TM_OneWire_WriteByte(dev, th);
+  TM_OneWire_WriteByte(dev, tl);
+  TM_OneWire_WriteByte(dev, conf);
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
-    return owError_NoDevice;
-  }
+  if (TM_OneWire_Reset(dev) != 0) return owError_NoDevice;
+
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Copy scratchpad to EEPROM of DS18B20 */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_CPYSCRATCHPAD);
-  if (ds_parasite_pwr) {
-	  gpio_set_direction(OW_DEVICE.pin, GPIO_MODE_OUTPUT);
-	  gpio_set_level(OW_DEVICE.pin,1);
-  }
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_CPYSCRATCHPAD);
+
+  if (ds_parasite_pwr) owdevice_pinpower(dev);
   vTaskDelay(20 / portTICK_RATE_MS);
-  if (ds_parasite_pwr) {
-	  gpio_set_direction(OW_DEVICE.pin, GPIO_MODE_INPUT);
-	  gpio_set_level(OW_DEVICE.pin,1);
-  }
+  if (ds_parasite_pwr) owdevice_input(dev);
 
   return ow_OK;
 }
@@ -318,8 +348,8 @@ owState_t TM_DS18B20_SetResolution(unsigned char *ROM, TM_DS18B20_Resolution_t r
 /* DS18B20 Alarm functions */
 /***************************/
 #ifdef DS18B20ALARMFUNC
-//---------------------------------------------------------------------------
-static unsigned char TM_DS18B20_SetAlarmLowTemperature(unsigned char *ROM, char temp) {
+//-------------------------------------------------------------------------------------------------
+static unsigned char TM_DS18B20_SetAlarmLowTemperature(uint8_t dev, unsigned char *ROM, int temp) {
   unsigned char tl, th, conf;
   if (!TM_DS18B20_Is(ROM)) {
     return owError_Not18b20;
@@ -331,52 +361,52 @@ static unsigned char TM_DS18B20_SetAlarmLowTemperature(unsigned char *ROM, char 
     temp = -55;
   }
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Read scratchpad command by onewire protocol */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RSCRATCHPAD);
 
   /* Ignore first 2 bytes */
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
 
-  th = TM_OneWire_ReadByte();
-  tl = TM_OneWire_ReadByte();
-  conf = TM_OneWire_ReadByte();
+  th = TM_OneWire_ReadByte(dev);
+  tl = TM_OneWire_ReadByte(dev);
+  conf = TM_OneWire_ReadByte(dev);
 
   tl = (unsigned char)temp;
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Write scratchpad command by onewire protocol, only th, tl and conf register can be written */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_WSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_WSCRATCHPAD);
 
   /* Write bytes */
-  TM_OneWire_WriteByte(th);
-  TM_OneWire_WriteByte(tl);
-  TM_OneWire_WriteByte(conf);
+  TM_OneWire_WriteByte(dev, th);
+  TM_OneWire_WriteByte(dev, tl);
+  TM_OneWire_WriteByte(dev, conf);
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Copy scratchpad to EEPROM of DS18B20 */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_CPYSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_CPYSCRATCHPAD);
 
   return ow_OK;
 }
 
-//------------------------------------------------------------------------------
-static owState_t TM_DS18B20_SetAlarmHighTemperature(unsigned char *ROM, char temp) {
+//----------------------------------------------------------------------------------------------
+static owState_t TM_DS18B20_SetAlarmHighTemperature(uint8_t dev, unsigned char *ROM, int temp) {
   unsigned char tl, th, conf;
   if (!TM_DS18B20_Is(ROM)) {
     return owError_Not18b20;
@@ -388,113 +418,329 @@ static owState_t TM_DS18B20_SetAlarmHighTemperature(unsigned char *ROM, char tem
     temp = -55;
   }
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Read scratchpad command by onewire protocol */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RSCRATCHPAD);
 
   /* Ignore first 2 bytes */
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
 
-  th = TM_OneWire_ReadByte();
-  tl = TM_OneWire_ReadByte();
-  conf = TM_OneWire_ReadByte();
+  th = TM_OneWire_ReadByte(dev);
+  tl = TM_OneWire_ReadByte(dev);
+  conf = TM_OneWire_ReadByte(dev);
 
   th = (unsigned char)temp;
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Write scratchpad command by onewire protocol, only th, tl and conf register can be written */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_WSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_WSCRATCHPAD);
 
   /* Write bytes */
-  TM_OneWire_WriteByte(th);
-  TM_OneWire_WriteByte(tl);
-  TM_OneWire_WriteByte(conf);
+  TM_OneWire_WriteByte(dev, th);
+  TM_OneWire_WriteByte(dev, tl);
+  TM_OneWire_WriteByte(dev, conf);
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Copy scratchpad to EEPROM of DS18B20 */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_CPYSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_CPYSCRATCHPAD);
 
   return ow_OK;
 }
 
-//-----------------------------------------------------------------
-static owState_t TM_DS18B20_DisableAlarmTemperature(unsigned char *ROM) {
+//------------------------------------------------------------------------------------
+static owState_t TM_DS18B20_DisableAlarmTemperature(uint8_t dev, unsigned char *ROM) {
   unsigned char tl, th, conf;
   if (!TM_DS18B20_Is(ROM)) {
     return owError_Not18b20;
   }
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Read scratchpad command by onewire protocol */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_RSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_RSCRATCHPAD);
 
   /* Ignore first 2 bytes */
-  TM_OneWire_ReadByte();
-  TM_OneWire_ReadByte();
+  TM_OneWire_ReadByte(dev);
+  TM_OneWire_ReadByte(dev);
 
-  th = TM_OneWire_ReadByte();
-  tl = TM_OneWire_ReadByte();
-  conf = TM_OneWire_ReadByte();
+  th = TM_OneWire_ReadByte(dev);
+  tl = TM_OneWire_ReadByte(dev);
+  conf = TM_OneWire_ReadByte(dev);
 
   th = 125;
   tl = (unsigned char)-55;
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Write scratchpad command by onewire protocol, only th, tl and conf register can be written */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_WSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_WSCRATCHPAD);
 
   /* Write bytes */
-  TM_OneWire_WriteByte(th);
-  TM_OneWire_WriteByte(tl);
-  TM_OneWire_WriteByte(conf);
+  TM_OneWire_WriteByte(dev, th);
+  TM_OneWire_WriteByte(dev, tl);
+  TM_OneWire_WriteByte(dev, conf);
 
   /* Reset line */
-  if (TM_OneWire_Reset() != 0) {
+  if (TM_OneWire_Reset(dev) != 0) {
     return owError_NoDevice;
   }
   /* Select ROM number */
-  TM_OneWire_SelectWithPointer(ROM);
+  TM_OneWire_SelectWithPointer(dev, ROM);
   /* Copy scratchpad to EEPROM of DS18B20 */
-  TM_OneWire_WriteByte(ONEWIRE_CMD_CPYSCRATCHPAD);
+  TM_OneWire_WriteByte(dev, ONEWIRE_CMD_CPYSCRATCHPAD);
 
   return ow_OK;
 }
 
-//---------------------------------------
-static unsigned char TM_DS18B20_AlarmSearch() {
+//--------------------------------------------------------
+static unsigned char TM_DS18B20_AlarmSearch(uint8_t dev) {
   /* Start alarm search */
-  return TM_OneWire_Search(DS18B20_CMD_ALARMSEARCH);
+  return TM_OneWire_Search(dev, DS18B20_CMD_ALARMSEARCH);
 }
-#endif
+
+#endif /* DS18B20ALARMFUNC */
+
+
+//----------------------------------------
+static uint8_t numDS1820dev(uint8_t dev) {
+	// get number of DS1820 devices on the bus
+	uint8_t count = 0;
+
+	for (uint8_t i=0;i<MAX_ONEWIRE_SENSORS;i++) {
+		if (TM_DS18B20_Is(&(ow_devices[dev].roms[i][0]))) count++;
+	}
+	return count;
+}
 
 /*
-//-----------------------------------
-static unsigned char TM_DS18B20_AllDone() {
-  // If read bit is low, then device is not finished yet with calculation temperature
-  return TM_OneWire_ReadBit();
+ * DS1820 sensor functions
+ */
+//------------------------------------------------------
+void ds1820_getrom(sensor_instance_t *unit, char *ROM) {
+	uint8_t owdev = unit->setup.owire.owdevice;
+	uint8_t sens = unit->setup.owire.owsensor - 1;
+
+	int i;
+	for (i = 0; i < 8; i++) {
+		sprintf(ROM+(i*2), "%02x", ow_devices[owdev].roms[sens][i]);
+	}
 }
-*/
+
+//-------------------------------------------------------
+void ds1820_gettype(sensor_instance_t *unit, char *buf) {
+	uint8_t owdev = unit->setup.owire.owdevice;
+	uint8_t sens = unit->setup.owire.owsensor - 1;
+
+	uint8_t code = TM_DS18B20_Is(&(ow_devices[owdev].roms[sens][0]));
+	if (code) TM_DS18B20_Family(code, buf);
+	else sprintf(buf, "unknown");
+}
+
+//-----------------------------------------------
+uint8_t ds1820_get_res(sensor_instance_t *unit) {
+	uint8_t owdev = unit->setup.owire.owdevice;
+
+	return unit->settings[0].integerd.value;
+}
+
+//-------------------------------------
+void ow_list(sensor_instance_t *unit) {
+	char rombuf[17];
+	char family[12];
+	uint8_t owdev = unit->setup.owire.owdevice;
+
+	for (int i=0;i<ow_devices[owdev].numdev;i++) {
+		for (int j = 0; j < 8; j++) {
+			sprintf(rombuf+(j*2), "%02x", ow_devices[owdev].roms[i][j]);
+		}
+		printf("%02d [%s]", i+1, rombuf);
+		uint8_t code = TM_DS18B20_Is(&(ow_devices[owdev].roms[i][0]));
+		if (code) {
+		  TM_DS18B20_Family(code, family);
+		  printf(" %s\r\n", family);
+		}
+		else printf(" unknown\r\n");
+	}
+}
+
+//----------------------------------------------
+uint8_t ds1820_numdev(sensor_instance_t *unit) {
+	uint8_t dev = unit->setup.owire.owdevice;
+
+	return numDS1820dev(dev);
+}
+
+//---------------------------------------------------------------------------
+static uint8_t _set_resolution(uint8_t ds_res, uint8_t dev, uint8_t ds_dev) {
+	uint8_t res = ds_res;
+	if ( res!=TM_DS18B20_Resolution_9bits &&
+	   res!=TM_DS18B20_Resolution_10bits &&
+	   res!=TM_DS18B20_Resolution_11bits &&
+	   res!=TM_DS18B20_Resolution_12bits ) {
+		res = TM_DS18B20_Resolution_10bits;
+	}
+	if (ow_devices[dev].roms[ds_dev-1][0] == DS18S20_FAMILY_CODE) {
+		res = TM_DS18B20_Resolution_9bits;
+	}
+	else {
+		res = TM_DS18B20_SetResolution(dev, ow_devices[dev].roms[ds_dev-1], (TM_DS18B20_Resolution_t)res);
+		// Get resolution
+		res = TM_DS18B20_GetResolution(dev,ow_devices[dev].roms[ds_dev-1]);
+		if (res != TM_DS18B20_Resolution_9bits &&
+		   res!=TM_DS18B20_Resolution_10bits &&
+		   res!=TM_DS18B20_Resolution_11bits &&
+		   res!=TM_DS18B20_Resolution_12bits ) {
+			res = TM_DS18B20_Resolution_10bits;
+		}
+	}
+	return res;
+}
+
+/*
+ * Operation functions
+ */
+//-----------------------------------------------------
+driver_error_t *ds1820_setup(sensor_instance_t *unit) {
+	// DS1820 specific setup, check for devices on the bus
+	uint8_t dev = unit->setup.owire.owdevice;
+	uint8_t ds_dev = unit->setup.owire.owsensor;
+
+	// Set default resolution to 10 bit
+	unit->settings[0].integerd.value = 10;
+
+	uint8_t numDS182 = numDS1820dev(dev);
+	if ((numDS182 == 0) || (ds_dev > numDS182) || (ds_dev == 0)) {
+		return driver_setup_error(SENSOR_DRIVER, OWIRE_ERR_INVALID_CHANNEL, "device not on bus");
+	}
+
+	// check for DS1820 device
+	if (!TM_DS18B20_Is(&(ow_devices[dev].roms[ds_dev-1][0]))) {
+		return driver_setup_error(SENSOR_DRIVER, OWIRE_ERR_INVALID_CHANNEL, "not DS1820 device");
+	}
+
+	// Set default resolution (10 bits)
+	unit->settings[0].integerd.value = _set_resolution(10, dev, ds_dev);
+
+	// Set exfunc values
+	unit->data[1].exfuncd.value = EXFUNC_DS1820_GETROM;
+	unit->data[2].exfuncd.value = EXFUNC_DS1820_GETTYPE;
+	unit->data[3].exfuncd.value = EXFUNC_DS1820_GETRESOLUTION;
+	unit->data[4].exfuncd.value = EXFUNC_OWIRE_LISTDEV;
+	unit->data[5].exfuncd.value = EXFUNC_DS1820_NUMDEV;
+
+	return NULL;
+}
+
+//--------------------------------------------------------------------------------------------
+driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting) {
+	if (strcmp(id,"resolution") == 0) {
+		unsigned char ds_dev = unit->setup.owire.owsensor;
+		uint8_t dev = unit->setup.owire.owdevice;
+
+		memcpy(&unit->settings[0], setting, sizeof(sensor_value_t));
+
+		// Set sensor's resolution
+		unit->settings[0].integerd.value = _set_resolution(setting->integerd.value, dev, ds_dev);
+	}
+
+	return NULL;
+}
+
+//-------------------------------------------
+static void _set_measure_time(int resolution)
+{
+  switch (resolution) {
+	case 9:
+	  ds_measure_time = 200;
+	  break;
+	case 10:
+	  ds_measure_time = 300;
+	  break;
+	case 11:
+	  ds_measure_time = 500;
+	  break;
+	case 12:
+	  ds_measure_time = 1000;
+	  break;
+	default:
+	  ds_measure_time = 1000;
+  }
+}
+
+//-------------------------------------------------------------------------------
+driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values) {
+	unsigned char sens = unit->setup.owire.owsensor - 1;
+	uint8_t dev = unit->setup.owire.owdevice;
+	owState_t stat;
+	double temper;
+
+	// set measure time, it depends on resolution
+	_set_measure_time(unit->settings[0].integerd.value);
+
+	/* Start temperature conversion on all devices on one bus
+	TM_DS18B20_StartAll(dev);
+	*/
+	// Start temperature conversion on device
+	if (TM_DS18B20_Start(dev, (unsigned char *)&ow_devices[dev].roms[sens]) != ow_OK) {
+		values[0].floatd.value = -9997.0;
+		return NULL;
+	}
+
+	// Wait until measurement finished (ds_start_measure_time is set in TM_DS18B20_Start & TM_DS18B20_StartAll)
+	if (ds_parasite_pwr) {
+		while ((clock() - ds_start_measure_time) < ds_measure_time) {
+			vTaskDelay(10 / portTICK_RATE_MS);
+		}
+		// Set owire pin to input mode
+		owdevice_input(dev);
+	}
+	else {
+		while ((clock() - ds_start_measure_time) < ds_measure_time) {
+			vTaskDelay(10 / portTICK_RATE_MS);
+			if (TM_OneWire_ReadBit(dev)) break;
+		}
+	}
+	ds_start_measure_time = 0;
+	ds_measure_time = 0;
+	vTaskDelay(10 / portTICK_RATE_MS);
+	if (!TM_OneWire_ReadBit(dev)) {
+		/* Timeout */
+		values[0].floatd.value = -9998.0;
+		return NULL;
+	}
+
+	// Read temperature from selected device
+	// Read temperature from ROM address and store it to temper variable
+	stat = TM_DS18B20_Read(dev, ow_devices[dev].roms[sens], &temper);
+	if ( stat == ow_OK) {
+		values[0].floatd.value = temper;
+	}
+	else {
+		// Reading error
+		values[0].floatd.value = -9999.0;
+	}
+
+    return NULL;
+}

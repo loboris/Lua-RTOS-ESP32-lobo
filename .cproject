@@ -32,6 +32,7 @@
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/lwip/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/lwip/include/lwip&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/vfs/include&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/tcpip_adapter/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32/components/lua_rtos/Lua/modules}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32/build/include}&quot;"/>

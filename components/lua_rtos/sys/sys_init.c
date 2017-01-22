@@ -102,7 +102,7 @@ void _sys_init() {
 
     _signal_init();
 
-	console_clear();
+	//console_clear();
 
 	esp_vfs_unregister("/dev/uart");
 	vfs_tty_register();

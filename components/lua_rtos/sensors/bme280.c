@@ -51,8 +51,36 @@
 * patent rights of the copyright holder.
 **************************************************************************/
 
-//#include <stdio.h>
-#include "bme280.h"
+#include "luartos.h"
+
+#if LUA_USE_BME280
+
+#include "drivers/i2c.h"
+#include "sensors/bme280.h"
+#include <sys/driver.h>
+#include <stdio.h>
+#include <string.h>
+
+
+// Sensor specification and registration
+const sensor_t __attribute__((used,unused,section(".sensors"))) bme280_sensor = {
+	.id = "BME280",
+	.interface = I2C_INTERFACE,
+	.data = {
+		{.id = "temperature", .type = SENSOR_DATA_DOUBLE},
+		{.id = "humidity", .type = SENSOR_DATA_DOUBLE},
+		{.id = "pressure", .type = SENSOR_DATA_DOUBLE},
+		{.id = "mode", .type = SENSOR_DATA_EXFUNC},
+	},
+	.settings = {
+		{.id = "mode", .type = SENSOR_DATA_INT},
+		{.id = "standbytime", .type = SENSOR_DATA_INT},
+	},
+	.setup = bme280_setup,
+	.acquire = bme280_acquire,
+	.set = bme280_set
+};
+
 
 struct bme280_user_data_t *p_bme280 = ((void *)0); /**< pointer to BME280 */
 
@@ -2150,3 +2178,357 @@ BME280_RETURN_FUNCTION_TYPE bme280_compute_wait_time(u8 *v_delaytime_u8)
 			? T_SETUP_PRESSURE_MAX : 0) + ((p_bme280->oversamp_humidity > 0) ? T_SETUP_HUMIDITY_MAX : 0) + 15) / 16;
 	return com_rslt;
 }
+
+// ================================ BME280 ===========================================
+
+//--------------------------------------------------------------
+static void print_driver_error(driver_error_t *error, int err) {
+	//printf(" DRIVER ERROR [%d]: type: %d, unit: %d, exc: %d\r\n", err, error->type, error->unit, error->exception);
+
+    free(error);
+}
+
+/*	\Brief          : The function is used as I2C bus write
+ *	\Return         : Status of the I2C write
+ *	\param dev_addr : The device address of the sensor
+ *	\param reg_addr : Address of the register to which data is going to be written
+ *	\param reg_data : Register data array, will be used for write the values into the register
+ *	\param cnt      : The number of bytes to be written
+ */
+
+//---------------------------------------------------------------------
+s8 BME280_I2C_bus_write(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
+{
+	driver_error_t *error;
+
+	/*printf("[bme280 wr] (%02x) %02x:", dev_addr, reg_addr);
+	for (int i=0; i<cnt; i++) {
+		printf(" %02x", reg_data[i]);
+	}*/
+    if ((error = i2c_start(p_bme280->unit, &p_bme280->transaction))) {
+    	print_driver_error(error, -1);
+    	return -1;
+    }
+	if ((error = i2c_write_address(p_bme280->unit, &p_bme280->transaction, dev_addr, 0))) {
+    	print_driver_error(error, -2);
+    	return -2;
+    }
+    if ((error = i2c_write(p_bme280->unit, &p_bme280->transaction, (char *)&reg_addr, 1))) {
+    	print_driver_error(error, -3);
+    	return -3;
+    }
+    if ((error = i2c_write(p_bme280->unit, &p_bme280->transaction, (char *)reg_data, cnt))) {
+    	print_driver_error(error, -4);
+    	return -4;
+    }
+    if ((error = i2c_stop(p_bme280->unit, &p_bme280->transaction))) {
+    	print_driver_error(error, -5);
+    	return -5;
+    }
+
+	//printf("\r\n");
+	return 0;
+}
+
+ /*	\Brief          : The function is used as I2C bus write&read
+ *	\Return         : Status of the I2C write&read
+ *	\param dev_addr : The device address of the sensor
+ *	\param reg_addr : Address of the first register, from where data is going to be read
+ *	\param reg_data : Array of data read from the sensor
+ *	\param cnt      : The number of data bytes to be read
+ */
+//--------------------------------------------------------------------
+s8 BME280_I2C_bus_read(u8 dev_addr, u8 reg_addr, u8 *reg_data, u8 cnt)
+{
+	driver_error_t *error;
+
+	//printf("[bme280 rd] (%02x) [%d] %02x:", dev_addr, cnt, reg_addr);
+    if ((error = i2c_start(p_bme280->unit, &p_bme280->transaction))) {
+    	print_driver_error(error, -1);
+    	return -1;
+    }
+	if ((error = i2c_write_address(p_bme280->unit, &p_bme280->transaction, dev_addr, 0))) {
+    	print_driver_error(error, -2);
+    	return -2;
+    }
+    if ((error = i2c_write(p_bme280->unit, &p_bme280->transaction, (char *)&reg_addr, 1))) {
+    	print_driver_error(error, -3);
+    	return -3;
+    }
+	// read reg data
+    if ((error = i2c_start(p_bme280->unit, &p_bme280->transaction))) {
+    	print_driver_error(error, -5);
+    	return -6;
+    }
+	if ((error = i2c_write_address(p_bme280->unit, &p_bme280->transaction, dev_addr, 1))) {
+    	print_driver_error(error, -7);
+    	return -7;
+    }
+	if ((error = i2c_read(p_bme280->unit, &p_bme280->transaction, (char *)reg_data, cnt))) {
+    	print_driver_error(error, -8);
+    	return -8;
+    }
+    if ((error = i2c_stop(p_bme280->unit, &p_bme280->transaction))) {
+    	print_driver_error(error, -10);
+    	return -10;
+    }
+
+	/*for (int i=0; i<cnt; i++) {
+		printf(" %02x", reg_data[i]);
+	}
+	printf("\r\n");*/
+    return 0;
+}
+
+/*	Brief : The delay routine
+ *	\param : delay in ms
+*/
+//------------------------------
+void BME280_delay_msek(u32 msek)
+{
+    vTaskDelay(msek / portTICK_RATE_MS);
+}
+
+//--------------------------------------------------------------
+static void _bme280_get(double *temp, double *hum, double *pres)
+{
+	// The variable used to read uncompensated temperature
+	s32 v_data_uncomp_temp_s32 = BME280_INIT_VALUE;
+	// The variable used to read uncompensated pressure
+	s32 v_data_uncomp_pres_s32 = BME280_INIT_VALUE;
+	// The variable used to read uncompensated humidity
+	s32 v_data_uncomp_hum_s32 = BME280_INIT_VALUE;
+
+	s32 com_rslt = ERROR;
+
+	if (p_bme280->chip_id == BME280_CHIP_ID) {
+		if (p_bme280->mode != BME280_NORMAL_MODE)
+			com_rslt = bme280_get_forced_uncomp_pressure_temperature_humidity(
+					&v_data_uncomp_pres_s32, &v_data_uncomp_temp_s32, &v_data_uncomp_hum_s32);
+		else com_rslt = bme280_read_uncomp_pressure_temperature_humidity(
+				&v_data_uncomp_pres_s32, &v_data_uncomp_temp_s32, &v_data_uncomp_hum_s32);
+		if (com_rslt == 0) {
+			//printf("BME280 READ uncomp %d, data: %d  %d  %d\r\n", com_rslt, v_data_uncomp_pres_s32, v_data_uncomp_temp_s32, v_data_uncomp_hum_s32);
+			*temp = bme280_compensate_temperature_double(v_data_uncomp_temp_s32);
+			*pres = bme280_compensate_pressure_double(v_data_uncomp_pres_s32);
+			*hum = bme280_compensate_humidity_double(v_data_uncomp_hum_s32);
+		}
+	}
+
+}
+
+/*
+ * Operation functions
+ */
+
+/*
+ * Initialize BME280 sensor
+ * Mode is set to sleep mode
+ * Optional parameters can be given: addres is detected automaticaly
+ */
+//-----------------------------------------------------
+driver_error_t *bme280_setup(sensor_instance_t *unit) {
+    s32 com_rslt = ERROR;
+
+    p_bme280 = calloc(sizeof(struct bme280_user_data_t), sizeof(char));
+    if (!p_bme280) {
+		return driver_setup_error(SENSOR_DRIVER, BME20_ERR_INVALID_CHANNEL, "cannot allocate memory");
+    }
+
+	// Set default mode & standby time
+	unit->settings[0].integerd.value = BME280_SLEEP_MODE;
+	unit->settings[1].integerd.value = BME280_STANDBY_TIME_125_MS;
+
+	// Set exfunc values
+	unit->data[3].exfuncd.value = EXFUNC_BME280_GETMODE;
+
+	p_bme280->unit = unit->setup.i2c.id;
+	p_bme280->transaction = I2C_TRANSACTION_INITIALIZER;
+	unit->setup.i2c.userdata = p_bme280;
+
+    p_bme280->chip_id = 0;
+	p_bme280->mode = 255;
+	p_bme280->bus_write = BME280_I2C_bus_write;
+	p_bme280->bus_read = BME280_I2C_bus_read;
+	p_bme280->dev_addr = BME280_I2C_ADDRESS1;
+	p_bme280->delay_msec = BME280_delay_msek;
+
+	/*--------------------------------------------------------------------------*
+	 *  This function used to assign the value/reference of
+	 *	the following parameters
+	 *	I2C address
+	 *	Bus Write
+	 *	Bus read
+	 *	Chip id
+	*-------------------------------------------------------------------------*/
+	com_rslt = bme280_init();
+	if (com_rslt != BME280_CHIP_ID_READ_SUCCESS) {
+		p_bme280->dev_addr = BME280_I2C_ADDRESS2;
+		com_rslt = bme280_init();
+	}
+	if (com_rslt == BME280_CHIP_ID_READ_SUCCESS) {
+		p_bme280->mode = BME280_SLEEP_MODE;
+
+		com_rslt += bme280_set_soft_rst();
+		BME280_delay_msek(5);
+
+		//	For reading the pressure, humidity and temperature data it is required to
+		//	set the OSS setting of humidity, pressure and temperature
+		// set the humidity oversampling
+		com_rslt += bme280_set_oversamp_humidity(BME280_OVERSAMP_1X);
+		// set the pressure oversampling
+		com_rslt += bme280_set_oversamp_pressure(BME280_OVERSAMP_2X);
+		// set the temperature oversampling
+		com_rslt += bme280_set_oversamp_temperature(BME280_OVERSAMP_4X);
+		// set standby time
+		com_rslt += bme280_set_standby_durn(BME280_STANDBY_TIME_125_MS);
+
+		com_rslt += bme280_set_power_mode(BME280_SLEEP_MODE);
+	}
+
+	// **************** END INITIALIZATION ****************
+	if (com_rslt == 0) {
+		// read measured values, first read after init returns wrong values
+		BME280_delay_msek(BME280_STANDBY_TIME_125_MS);
+		double temp = 0.0;
+		double pres = 0.0;
+		double hum = 0.0;
+		_bme280_get(&temp, &hum, &pres);
+	}
+	else {
+		return driver_setup_error(SENSOR_DRIVER, BME20_ERR_INVALID_CHANNEL, "cannot detect device");
+	}
+
+	return NULL;
+}
+
+//-------------------------------------------------------------------------------
+driver_error_t *bme280_acquire(sensor_instance_t *unit, sensor_value_t *values) {
+    if (!unit->setup.i2c.userdata) {
+		return driver_setup_error(SENSOR_DRIVER, BME20_ERR_INVALID_CHANNEL, "cannot allocate memory");
+    }
+    p_bme280 = unit->setup.i2c.userdata;
+
+	double temp = 0.0;
+	double pres = 0.0;
+	double hum = 0.0;
+	_bme280_get(&temp, &hum, &pres);
+
+	values[0].doubled.value = temp;
+	values[1].doubled.value = hum;
+	values[2].doubled.value = pres / 100.0;
+
+	return NULL;
+}
+
+//------------------------------------
+static uint8_t bme280_getsby(int sb) {
+	uint8_t sby;
+	if (sb < 10) sby = BME280_STANDBY_TIME_1_MS;
+	else if (sb < 20) sby = BME280_STANDBY_TIME_10_MS;
+	else if (sb < 62) sby = BME280_STANDBY_TIME_20_MS;
+	else if (sb < 125) sby = BME280_STANDBY_TIME_63_MS;
+	else if (sb < 250) sby = BME280_STANDBY_TIME_125_MS;
+	else if (sb < 500) sby = BME280_STANDBY_TIME_250_MS;
+	else if (sb < 1000) sby = BME280_STANDBY_TIME_500_MS;
+	else sby = BME280_STANDBY_TIME_1000_MS;
+
+	return sby;
+}
+
+/*
+ * Set BME280 operating mode
+ * Parameters:
+ * mode: operating mode
+ *       0: sleep mode, no operation, lowest power
+ *       1: forced mode, perform one measurement, return to sleep mode
+ *       3: normal mode, continuous measurements with inactive periods between
+ */
+//--------------------------------------------------------------------------------------------
+driver_error_t *bme280_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting) {
+    p_bme280 = unit->setup.i2c.userdata;
+
+    if (strcmp(id,"mode") == 0) {
+		u8 mode, md;
+		s32 com_rslt = ERROR;
+
+		memcpy(&unit->settings[0], setting, sizeof(sensor_value_t));
+
+		if (p_bme280->chip_id == BME280_CHIP_ID) {
+			md = unit->settings[0].integerd.value;
+			if ((md == BME280_SLEEP_MODE) || (md == BME280_FORCED_MODE) || (md == BME280_NORMAL_MODE)) {
+				com_rslt = bme280_get_power_mode(&mode);
+				if (com_rslt == 0) {
+					if (mode != md) {
+						com_rslt = bme280_set_power_mode(md);
+						if (com_rslt == 0) {
+							p_bme280->mode = md;
+							if (md == BME280_NORMAL_MODE) {
+								u8 sby = unit->settings[1].integerd.value;
+								if (sby < 8) com_rslt = bme280_set_standby_durn(sby);
+							}
+						}
+					}
+				}
+			}
+			else {
+				return driver_setup_error(SENSOR_DRIVER, BME20_ERR_INVALID_MODE, "mode: 0 (sleep), 1 (forced), 3 (normal)");
+			}
+		}
+	}
+    else if (strcmp(id,"standbytime") == 0) {
+    	unit->settings[1].integerd.value = bme280_getsby(setting->integerd.value);
+    }
+
+	return NULL;
+}
+
+//------------------------------------------------------
+int bm280_get_mode(sensor_instance_t *unit, char *buf) {
+    p_bme280 = unit->setup.i2c.userdata;
+	u8 mode = 255;
+	u8 sby = 255;
+	s32 com_rslt = ERROR;
+	int sb = 1000;
+	char smode[16];
+
+	if (p_bme280->chip_id == BME280_CHIP_ID) {
+		com_rslt = bme280_get_power_mode(&mode);
+		if (com_rslt == 0) {
+			com_rslt += bme280_get_standby_durn(&sby);
+			if (com_rslt != 0) sby = 255;
+		}
+		else mode = 255;
+	}
+
+	if (sby < 255) {
+		if (sby == BME280_STANDBY_TIME_1_MS) sb = 1;
+		else if (sby == BME280_STANDBY_TIME_10_MS) sb = 10;
+		else if (sby == BME280_STANDBY_TIME_20_MS) sb = 20;
+		else if (sby == BME280_STANDBY_TIME_63_MS) sb = 63;
+		else if (sby == BME280_STANDBY_TIME_125_MS) sb = 125;
+		else if (sby == BME280_STANDBY_TIME_250_MS) sb = 250;
+		else if (sby == BME280_STANDBY_TIME_500_MS) sb = 500;
+	}
+	switch (mode) {
+		case 0:
+			sprintf(smode, "SLEEP");
+			break;
+		case 1:
+			sprintf(smode, "FORCED");
+			break;
+		case 3:
+			sprintf(smode, "NORMAL");
+			break;
+		default:
+			sprintf(smode, "unknown");
+			break;
+	}
+	if (mode == BME280_NORMAL_MODE) sprintf(buf, "%s STANDBY=%d", smode, sb);
+	else sprintf(buf, "%s", smode);
+
+	return mode;
+}
+
+#endif /* LUA_USE_BME280 */
+

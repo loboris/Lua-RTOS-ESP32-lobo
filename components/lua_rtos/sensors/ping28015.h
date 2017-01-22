@@ -1,12 +1,12 @@
 /*
- * Lua RTOS, ADC driver
+ * Lua RTOS, PING))) #28015 sensor (Distance Sensor)
  *
  * Copyright (C) 2015 - 2016
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
- * 
+ *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
- * 
- * All rights reserved.  
+ *
+ * All rights reserved.
  *
  * Permission to use, copy, modify, and distribute this software
  * and its documentation for any purpose and without fee is hereby
@@ -27,34 +27,9 @@
  * this software.
  */
 
-#ifndef ADC_H
-#define	ADC_H
-
-#include <stdint.h>
-
-#include <drivers/cpu.h>
-
 #include <sys/driver.h>
+#include <drivers/sensor.h>
 
-// ADC channel
-typedef struct {
-	uint8_t setup;
-	uint8_t resolution;
-	uint16_t max_val;
-} adc_channel_t;
-
-// Resources used by ADC
-typedef struct {
-	uint8_t pin;
-} adc_resources_t;
-
-// ADC errors
-#define ADC_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  0)
-#define ADC_ERR_INVALID_UNIT             (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  1)
-#define ADC_ERR_INVALID_CHANNEL          (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  2)
-
-driver_error_t *adc_setup(int8_t unit);
-driver_error_t *adc_setup_channel(int8_t channel, int8_t resolution);
-driver_error_t *adc_read(int8_t channel, int *raw, double *mvols);
-
-#endif	/* ADC_H */
+driver_error_t *ping28015_setup(sensor_instance_t *unit);
+driver_error_t *ping28015_acquire(sensor_instance_t *unit, sensor_value_t *values);
+driver_error_t *ping28015_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting);

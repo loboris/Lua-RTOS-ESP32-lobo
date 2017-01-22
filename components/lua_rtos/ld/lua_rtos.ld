@@ -19,6 +19,11 @@ SECTIONS {
     KEEP(*(.drivers))
     LONG(0) LONG(0)
 
+    /* This is the array for sensors available in Lua RTOS build */
+    sensors = ABSOLUTE(.);
+    KEEP(*(.sensors))
+    LONG(0) LONG(0)
+
 	/* For each driver we need to declare 2 entries in linker script */
 	/* One entry is for the driver messages, and other entry is for */
 	/* exception names exported to Lua modules */
@@ -72,20 +77,44 @@ SECTIONS {
     KEEP(*(.gpio_error_map))
     LONG(0) LONG(0)
 
+    mqtt_errors = ABSOLUTE(.);
+    KEEP(*(.mqtt_errors))
+    LONG(0) LONG(0)
+
+    mqtt_error_map = ABSOLUTE(.);
+    KEEP(*(.mqtt_error_map))
+    LONG(0) LONG(0)
+
     net_errors = ABSOLUTE(.);
     KEEP(*(.net_errors))
+    LONG(0) LONG(0)
+
+    net_error_map = ABSOLUTE(.);
+    KEEP(*(.net_error_map))
     LONG(0) LONG(0)
 
     owire_errors = ABSOLUTE(.);
     KEEP(*(.owire_errors))
     LONG(0) LONG(0)
 
+    owire_error_map = ABSOLUTE(.);
+    KEEP(*(.owire_error_map))
+    LONG(0) LONG(0)
+
+    sensor_errors = ABSOLUTE(.);
+    KEEP(*(.sensor_errors))
+    LONG(0) LONG(0)
+
+    sensor_error_map = ABSOLUTE(.);
+    KEEP(*(.sensor_error_map))
+    LONG(0) LONG(0)
+
     ws2812_errors = ABSOLUTE(.);
     KEEP(*(.ws2812_errors))
     LONG(0) LONG(0)
 
-    net_error_map = ABSOLUTE(.);
-    KEEP(*(.net_error_map))
+    ws2812_error_map = ABSOLUTE(.);
+    KEEP(*(.ws2812_error_map))
     LONG(0) LONG(0)
 
     _lua_rtos_rodata_end = ABSOLUTE(.);

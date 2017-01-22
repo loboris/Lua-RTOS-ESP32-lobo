@@ -7,11 +7,6 @@
 
 ### Added modules
 
-* sensors
-  * support for BME280 temperature, humidity and pressure sensors in I2C mode
-  * support for 1-wire devices
-  * DS1820 temperature sensors support (including parasite power support)
-
 * led
   * support for WS2812 - NeoPixel RGB leds
 
@@ -22,6 +17,11 @@
 
 * i2c
   * added high level functions: send, receive, sendreceive
+
+* sensor
+  * support for BME280 temperature, humidity and pressure sensors in I2C mode
+  * support for 1-wire devices on multiple 1-wire buses
+  * DS1820 temperature sensors support (including parasite power support)
 
 ---
 

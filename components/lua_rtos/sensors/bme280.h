@@ -64,7 +64,14 @@
 
 /************************************************/
 #include <stdint.h>
+#include <drivers/sensor.h>
 /************************************************/
+
+// BME280 driver errors
+#define BME280_ERR_CANT_INIT        (DRIVER_EXCEPTION_BASE(I2C_DRIVER_ID) |  0)
+#define BME20_ERR_INVALID_CHANNEL   (DRIVER_EXCEPTION_BASE(I2C_DRIVER_ID) |  1)
+#define BME20_ERR_INVALID_MODE      (DRIVER_EXCEPTION_BASE(I2C_DRIVER_ID) |  2)
+#define BME20_ERR_INVALID_STANDBY   (DRIVER_EXCEPTION_BASE(I2C_DRIVER_ID) |  3)
 
 /*unsigned integer types*/
 typedef	uint8_t u8;/**< used for unsigned 8bit */
@@ -1486,6 +1493,13 @@ s32 v_uncom_pressure_s32);
  *
  *
  */
-BME280_RETURN_FUNCTION_TYPE bme280_compute_wait_time(u8
-*v_delaytime_u8);
+BME280_RETURN_FUNCTION_TYPE bme280_compute_wait_time(u8 *v_delaytime_u8);
+
+
+driver_error_t *bme280_setup(sensor_instance_t *unit);
+driver_error_t *bme280_acquire(sensor_instance_t *unit, sensor_value_t *values);
+driver_error_t *bme280_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting);
+
+int bm280_get_mode(sensor_instance_t *unit, char *buf);
+
 #endif
