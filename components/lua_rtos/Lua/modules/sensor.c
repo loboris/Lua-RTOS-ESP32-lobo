@@ -44,6 +44,7 @@
 
 #include <drivers/sensor.h>
 #include <sensors/ds1820.h>
+#include <sensors/bme280.h>
 
 // This variables are defined at linker time
 extern LUA_REG_TYPE sensor_error_map[];
@@ -548,6 +549,25 @@ while true do
 	temperature = s1:read("temperature")
 	humidity = s1:read("humidity")
 	print("temp "..temperature..", hum "..humidity)
+	tmr.delayms(500)
+end
+
+s1 = sensor.setup("DS1820", pio.GPIO18, 1)
+s1:set("resolution",11)
+while true do
+	s1:acquire()
+	temperature = s1:read("temperature")
+	print("temp "..temperature..")
+	tmr.delayms(500)
+end
+
+s1 = sensor.setup("BME280", i2c.I2C0, 400, 21, 22)
+while true do
+	s1:acquire()
+	temperature = s1:read("temperature")
+	humidity = s1:read("humidity")
+	pressure = s1:read("pressure")
+	print("temp "..temperature..", hum "..humidity, pres "..pressure)
 	tmr.delayms(500)
 end
 
