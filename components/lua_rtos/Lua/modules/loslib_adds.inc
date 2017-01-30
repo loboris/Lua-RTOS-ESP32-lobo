@@ -457,6 +457,20 @@ static int os_cp(lua_State *L) {
     return 1;
 }
 
+static int os_exists(lua_State *L) {
+	const char *fname;
+	struct stat sb;
+	size_t len;
+
+	fname = luaL_checklstring( L, 1, &len );
+	if (stat(fname, &sb) != 0) {
+		lua_pushboolean(L, false);
+	}
+	else lua_pushboolean(L, true);
+
+	return 1;
+}
+
 static int os_run (lua_State *L) {
 	#if 0
     const char *argCode = luaL_optstring(L, 1, "");

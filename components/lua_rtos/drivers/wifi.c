@@ -180,8 +180,10 @@ static driver_error_t *wifi_init(wifi_mode_t mode) {
 
 		esp_event_loop_init(event_handler, NULL);
 
+		#ifdef CONFIG_WIFI_ENABLED
 		wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
 		if ((error = wifi_check_error(esp_wifi_init(&cfg)))) return error;
+		#endif
 		if ((error = wifi_check_error(esp_wifi_set_storage(WIFI_STORAGE_RAM)))) return error;
 		if ((error = wifi_check_error(esp_wifi_set_mode(mode)))) return error;
 

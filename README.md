@@ -10,6 +10,12 @@
 * led
   * support for WS2812 - NeoPixel RGB leds
 
+* tft
+  * full support for ILI9341 & ST7735 based TFT modules in 4-wire SPI mode.
+  * Supported  are many graphics elements, fixed width and proportional fonts (unlimited number of fonts, loaded from file)
+  * jpeg, bmp and raw bitmap images.
+  * Touch screen supported (not tested yet)
+ 
 ### Modified modules
 
 * io

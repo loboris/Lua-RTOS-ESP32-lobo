@@ -14,8 +14,6 @@
 #include <sys/driver.h>
 
 static int ds_parasite_pwr = 0;
-static uint32_t ds_start_measure_time = 0;
-static uint32_t ds_measure_time;
 extern TM_One_Wire_Devices_t ow_devices[MAX_ONEWIRE_PINS];
 
 #ifdef DS18B20ALARMFUNC
@@ -109,10 +107,8 @@ static owState_t TM_DS18B20_Start(uint8_t dev, unsigned char *ROM) {
   // Start temperature conversion
   TM_OneWire_WriteByte(dev, DS18B20_CMD_CONVERTTEMP);
 
-  if (ds_parasite_pwr) {
-	  owdevice_pinpower(dev);
-	  ds_start_measure_time = clock();
-  }
+  if (ds_parasite_pwr) owdevice_pinpower(dev);
+
   return ow_OK;
 }
 
@@ -127,10 +123,8 @@ static owState_t TM_DS18B20_StartAll(uint8_t dev) {
   // Start conversion on all connected devices
   TM_OneWire_WriteByte(dev, DS18B20_CMD_CONVERTTEMP);
 
-  if (ds_parasite_pwr) {
-	  owdevice_pinpower(dev);
-	  ds_start_measure_time = clock();
-  }
+  if (ds_parasite_pwr) owdevice_pinpower(dev);
+
   return ow_OK;
 }
 
@@ -668,36 +662,29 @@ driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value
 	return NULL;
 }
 
-//-------------------------------------------
-static void _set_measure_time(int resolution)
-{
-  switch (resolution) {
-	case 9:
-	  ds_measure_time = 200;
-	  break;
-	case 10:
-	  ds_measure_time = 300;
-	  break;
-	case 11:
-	  ds_measure_time = 500;
-	  break;
-	case 12:
-	  ds_measure_time = 1000;
-	  break;
-	default:
-	  ds_measure_time = 1000;
-  }
-}
-
 //-------------------------------------------------------------------------------
 driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values) {
 	unsigned char sens = unit->setup.owire.owsensor - 1;
 	uint8_t dev = unit->setup.owire.owdevice;
 	owState_t stat;
 	double temper;
+	uint16_t measure_time = 900;
 
 	// set measure time, it depends on resolution
-	_set_measure_time(unit->settings[0].integerd.value);
+	switch (unit->settings[0].integerd.value) {
+	case 9:
+		measure_time = 150;
+		break;
+	case 10:
+		measure_time = 250;
+		break;
+	case 11:
+		measure_time = 450;
+		break;
+	case 12:
+		measure_time = 850;
+		break;
+	}
 
 	/* Start temperature conversion on all devices on one bus
 	TM_DS18B20_StartAll(dev);
@@ -708,22 +695,18 @@ driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values) 
 		return NULL;
 	}
 
-	// Wait until measurement finished (ds_start_measure_time is set in TM_DS18B20_Start & TM_DS18B20_StartAll)
+	// Wait until measurement finished
 	if (ds_parasite_pwr) {
-		while ((clock() - ds_start_measure_time) < ds_measure_time) {
-			vTaskDelay(10 / portTICK_RATE_MS);
-		}
+		vTaskDelay(measure_time / portTICK_RATE_MS);
 		// Set owire pin to input mode
 		owdevice_input(dev);
 	}
 	else {
-		while ((clock() - ds_start_measure_time) < ds_measure_time) {
+		for (int mtime = 0; mtime < measure_time; mtime += 10) {
 			vTaskDelay(10 / portTICK_RATE_MS);
 			if (TM_OneWire_ReadBit(dev)) break;
 		}
 	}
-	ds_start_measure_time = 0;
-	ds_measure_time = 0;
 	vTaskDelay(10 / portTICK_RATE_MS);
 	if (!TM_OneWire_ReadBit(dev)) {
 		/* Timeout */

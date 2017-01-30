@@ -52,6 +52,12 @@ int chdir(const char *path) {
     }
 
     ppath = mount_resolve_to_physical(path);
+    if (strcmp(ppath, "/spiffs/") == 0) {
+    	free(ppath);
+    	strncpy(currdir, "", PATH_MAX);
+    	return 0;
+    }
+
     // Check for path existence
     if ((fd = open(ppath, O_RDONLY)) == -1) {
     	errno = ENOTDIR;
