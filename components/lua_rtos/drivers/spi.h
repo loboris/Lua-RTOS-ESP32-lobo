@@ -166,4 +166,6 @@ void spi_bulk_rw32_be(int unit, unsigned int nelem, int *data);
 
 driver_error_t *spi_lock_resources(int unit, void *resources);
 
+void spi_master_op(int unit, unsigned int word_size, unsigned int len, unsigned char *out, unsigned char *in);
+
 #endif

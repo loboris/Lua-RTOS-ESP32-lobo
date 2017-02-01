@@ -1,16 +1,216 @@
 
+#include "freertos/FreeRTOS.h"
 #include "drivers/tftspi.h"
 #include "freertos/task.h"
 #include "stdio.h"
+#include "drivers/spi.h"
 
 static uint8_t is_init = 0;
-spi_device_handle_t tft_spi;
-spi_device_handle_t touch_spi;
-static spi_transaction_t trans[TFT_NUM_TRANS];
-uint8_t queued = 0;
+//static spi_device_handle_t tft_spi;
+//spi_device_handle_t touch_spi;
+//static spi_transaction_t trans[TFT_NUM_TRANS];
+//uint8_t queued = 0;
 uint8_t tft_line[TFT_LINEBUF_MAX_SIZE] = {0};
 static int colstart = 0;
 static int rowstart = 0;				// May be overridden in init func
+uint16_t _width = 320;
+uint16_t _height = 240;
+
+
+//=============================================================================================
+
+#define TFT_DC_DATA     GPIO_OUTPUT_SET(PIN_NUM_DC, 1)
+#define TFT_DC_COMMAND  GPIO_OUTPUT_SET(PIN_NUM_DC, 0)
+#define TFT_DC_INIT     PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO21_U, FUNC_GPIO21_GPIO21); TFT_DC_DATA
+#define SWAPBYTES(i) ((i>>8) | (i<<8))
+
+#define SpiNum_SPI2 2
+
+//Send a command to the TFT. Uses spi_device_transmit, which waits until the transfer is complete.
+//-----------------------------
+void tft_cmd(const uint8_t cmd)
+{
+	unsigned char command = cmd;
+
+    taskDISABLE_INTERRUPTS();
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &command, NULL);
+    taskENABLE_INTERRUPTS();
+/*
+    esp_err_t ret;
+    spi_transaction_t t;
+    memset(&t, 0, sizeof(t));       //Zero out the transaction
+    t.length=8;                     //Command is 8 bits
+    t.tx_buffer=&cmd;               //The data is the cmd itself
+    t.user=(void*)0;                //D/C needs to be set to 0
+    ret=spi_device_transmit(tft_spi, &t);  //Transmit!
+    assert(ret==ESP_OK);            //Should have had no issues.
+*/
+}
+
+//Send data to the TFT. Uses spi_device_transmit, which waits until the transfer is complete.
+//-----------------------------------------
+void tft_data(const uint8_t *data, int len)
+{
+    if (len==0) return;             //no need to send anything
+
+    taskDISABLE_INTERRUPTS();
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 1, len, (unsigned char *)data, NULL);
+    taskENABLE_INTERRUPTS();
+    /*
+    esp_err_t ret;
+    spi_transaction_t t;
+    if (len==0) return;             //no need to send anything
+    memset(&t, 0, sizeof(t));       //Zero out the transaction
+    t.length=len*8;                 //Len is in bytes, transaction length is in bits.
+    t.tx_buffer=data;               //Data
+    t.user=(void*)1;                //D/C needs to be set to 1
+    ret=spi_device_transmit(tft_spi, &t);  //Transmit!
+    assert(ret==ESP_OK);            //Should have had no issues.
+*/
+}
+
+//---------------------------------------------------
+void drawPixel(int16_t x, int16_t y, uint16_t color)
+{
+	if((x < 0) ||(x >= _width) || (y < 0) || (y >= _height)) return;
+
+	// ** Send address window **
+	uint8_t cmd = TFT_CASET;
+	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
+
+    taskDISABLE_INTERRUPTS();
+
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 4, 1, (unsigned char *)(&data), NULL);
+
+	cmd = TFT_PASET;
+	data = (y >> 8) | ((y & 0xFF) << 8) | (((y+1) >> 8) << 16) | (((y+1) & 0xFF) << 24);
+	TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 4, 1, (unsigned char *)(&data), NULL);
+
+    // ** Send pixel color **
+	cmd = TFT_RAMWR;
+    uint16_t clr = SWAPBYTES(color);
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+
+    TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 2, 1, (unsigned char *)(&clr), NULL);
+
+    taskENABLE_INTERRUPTS();
+}
+
+//---------------------------------------------------------------------------------
+void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t color, uint32_t len)
+{
+    uint8_t *buf = NULL;
+    int tosend, i, sendlen;
+    uint32_t buflen;
+	uint8_t cmd;
+	uint32_t data;
+
+    if (len == 0) return;
+    else if (len <= TFT_MAX_BUF_LEN) buflen = len;
+    else buflen = TFT_MAX_BUF_LEN;
+
+    buf = malloc(buflen*2);
+    if (!buf) return;
+
+    // fill buffer with pixel color data
+	for (i=0;i<(buflen*2);i+=2) {
+		buf[i] = (uint8_t)(color >> 8);
+		buf[i+1] = (uint8_t)(color & 0x00FF);
+	}
+
+	// ** Send address window **
+    taskDISABLE_INTERRUPTS();
+
+	cmd = TFT_CASET;
+	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 4, 1, (unsigned char *)(&data), NULL);
+
+	cmd = TFT_PASET;
+	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
+	TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 4, 1, (unsigned char *)(&data), NULL);
+
+    // ** Send repeated color **
+	cmd = TFT_RAMWR;
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+
+    taskENABLE_INTERRUPTS();
+
+    TFT_DC_DATA;
+	tosend = len;
+    while (tosend > 0) {
+        if (tosend > buflen) sendlen = buflen;
+    	else sendlen = tosend;
+
+        taskDISABLE_INTERRUPTS();
+        spi_master_op(SpiNum_SPI2, 1, sendlen*2, buf, NULL);
+        taskENABLE_INTERRUPTS();
+
+		tosend -= sendlen;
+    }
+
+    free(buf);
+}
+
+//--------------------------------------------------------------------
+void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
+{
+	uint8_t cmd;
+	uint32_t data;
+
+	// ** Send address window **
+    taskDISABLE_INTERRUPTS();
+
+	cmd = TFT_CASET;
+	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 4, 1, (unsigned char *)(&data), NULL);
+
+	cmd = TFT_PASET;
+	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
+	TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+	TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 4, 1, (unsigned char *)(&data), NULL);
+
+    // ** Send repeated color **
+	cmd = TFT_RAMWR;
+    TFT_DC_COMMAND;
+    spi_master_op(SpiNum_SPI2, 1, 1, &cmd, NULL);
+
+    TFT_DC_DATA;
+    spi_master_op(SpiNum_SPI2, 1, len*2, buf, NULL);
+
+    taskENABLE_INTERRUPTS();
+}
+
+
+//=============================================================================================
+
+
+
+
+
 
 static const ili_init_cmd_t ili_init_cmds[]={
 	#ifndef TFT_USE_RST
@@ -103,7 +303,7 @@ static const uint8_t Bcmd[] = {
   TFT_CASET  , 4      , 	// 15: Column addr set, 4 args, no delay:
   0x00, 0x02,			//     XSTART = 2
   0x00, 0x81,			//     XEND = 129
-  TFT_RASET  , 4      , 	// 16: Row addr set, 4 args, no delay:
+  TFT_PASET  , 4      , 	// 16: Row addr set, 4 args, no delay:
   0x00, 0x02,			//     XSTART = 1
   0x00, 0x81,			//     XEND = 160
   ST7735_NORON  ,   DELAY,	// 17: Normal display on, no args, w/delay
@@ -160,7 +360,7 @@ static const uint8_t Rcmd2green[] = {
   TFT_CASET  , 4      ,	        //  1: Column addr set, 4 args, no delay:
   0x00, 0x02,			//     XSTART = 0
   0x00, 0x7F+0x02,		//     XEND = 129
-  TFT_RASET  , 4      ,	        //  2: Row addr set, 4 args, no delay:
+  TFT_PASET  , 4      ,	        //  2: Row addr set, 4 args, no delay:
   0x00, 0x01,			//     XSTART = 0
   0x00, 0x9F+0x01		//     XEND = 160
 };
@@ -172,7 +372,7 @@ static const uint8_t Rcmd2red[] = {
   TFT_CASET  , 4      ,	        //  1: Column addr set, 4 args, no delay:
   0x00, 0x00,			//     XSTART = 0
   0x00, 0x7F,			//     XEND = 127
-  TFT_RASET  , 4      ,	        //  2: Row addr set, 4 args, no delay:
+  TFT_PASET  , 4      ,	        //  2: Row addr set, 4 args, no delay:
   0x00, 0x00,			//     XSTART = 0
   0x00, 0x9F			//     XEND = 159
 };
@@ -245,35 +445,6 @@ static const uint8_t ILI9341_init[] = {
   120,			 //  120 ms delay
   TFT_DISPON, 0,
 };
-
-//Send a command to the TFT. Uses spi_device_transmit, which waits until the transfer is complete.
-//-----------------------------
-void tft_cmd(const uint8_t cmd)
-{
-    esp_err_t ret;
-    spi_transaction_t t;
-    memset(&t, 0, sizeof(t));       //Zero out the transaction
-    t.length=8;                     //Command is 8 bits
-    t.tx_buffer=&cmd;               //The data is the cmd itself
-    t.user=(void*)0;                //D/C needs to be set to 0
-    ret=spi_device_transmit(tft_spi, &t);  //Transmit!
-    assert(ret==ESP_OK);            //Should have had no issues.
-}
-
-//Send data to the TFT. Uses spi_device_transmit, which waits until the transfer is complete.
-//-----------------------------------------
-void tft_data(const uint8_t *data, int len)
-{
-    esp_err_t ret;
-    spi_transaction_t t;
-    if (len==0) return;             //no need to send anything
-    memset(&t, 0, sizeof(t));       //Zero out the transaction
-    t.length=len*8;                 //Len is in bytes, transaction length is in bits.
-    t.tx_buffer=data;               //Data
-    t.user=(void*)1;                //D/C needs to be set to 1
-    ret=spi_device_transmit(tft_spi, &t);  //Transmit!
-    assert(ret==ESP_OK);            //Should have had no issues.
-}
 
 //------------------------------------------------------
 // Companion code to the above tables.  Reads and issues
@@ -354,6 +525,7 @@ static void ST7735_initR(uint8_t options) {
  * This function is called (in irq context!) just before a transmission starts. It will
  * set the D/C line to the value indicated in the user field.
  */
+/*
 //------------------------------------------------------
 void tft_spi_pre_transfer_callback(spi_transaction_t *t)
 {
@@ -400,10 +572,14 @@ esp_err_t  tft_spi_close() {
     }
 	return ESP_OK;
 }
+*/
+
+static spi_userdata spi_config;
 
 //---------------------
 esp_err_t  tft_init_spi() {
     if (!is_init) {
+    	/*
         esp_err_t ret;
 		spi_bus_config_t buscfg={
 			.miso_io_num= -1, //PIN_NUM_MISO,
@@ -427,6 +603,29 @@ esp_err_t  tft_init_spi() {
 		ret=spi_bus_add_device(HSPI_HOST, &devcfg, &tft_spi);
 		if (ret != ESP_OK) return ret;
 		is_init = 1;
+		*/
+
+		PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO25_U, 2);  //MISO GPIO19 // -> 25
+		PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO23_U, 2);  //MOSI GPIO23 // -> 23
+		PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO19_U, 2);  //CLK GPIO18  // -> 19
+		PIN_FUNC_SELECT(PERIPHS_IO_MUX_GPIO22_U, 2);   //CS GPIO5   // -> 22
+
+		gpio_matrix_in(GPIO_NUM_25, HSPIQ_IN_IDX,0);
+		gpio_matrix_out(GPIO_NUM_23, HSPID_OUT_IDX,0,0);
+		gpio_matrix_out(GPIO_NUM_19, HSPICLK_OUT_IDX,0,0);
+		gpio_matrix_out(GPIO_NUM_22, HSPICS0_OUT_IDX,0,0);
+
+		spi_config.spi = SpiNum_SPI2;
+		spi_config.cs = PIN_NUM_CS;
+		spi_config.speed = 40000;
+		spi_config.mode = 0;
+		spi_config.bits = 8;
+
+		spi_set_mode(spi_config.spi, spi_config.mode);
+		spi_set_speed(spi_config.spi, spi_config.speed);
+		spi_set_cspin(spi_config.spi, spi_config.cs);
+		spi_select(spi_config.spi);
+
     }
     return ESP_OK;
 }
@@ -507,6 +706,7 @@ esp_err_t tft_spi_init(uint8_t typ) {
  * because the D/C line needs to be toggled in the middle.)
  * This routine queues these commands up so they get sent as quickly as possible.
 */
+/*
 //-------------------------------------------------------------------
 void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
 {
@@ -541,17 +741,10 @@ void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
     trans[3].tx_data[2]=y2 >> 8;	//end page high
     trans[3].tx_data[3]=y2 & 0xff;	//end page low
     trans[4].tx_data[0]=0x2C;		//memory write
-    if (len > 2) {
-		trans[5].tx_buffer=buf;		//finally send the line data
-		trans[5].length = len*2*8;	//Data length, in bits
-		trans[5].flags=0;			//undo SPI_TRANS_USE_TXDATA flag
-    }
-    else {
-        for (x=0; x<(len*2); x++) {
-        	trans[5].tx_data[x]=buf[x];
-        }
-		trans[5].length = len*2*8;	//Data length, in bits
-    }
+    //finally send the line data
+	trans[5].flags=0;				//undo SPI_TRANS_USE_TXDATA flag
+	trans[5].length = len*2*8;		//Data length, in bits
+	trans[5].tx_buffer=buf;
 
     //Queue all transactions.
     for (x=0; x<6; x++) {
@@ -559,12 +752,10 @@ void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
         assert(ret==ESP_OK);
     }
     queued = 1;
-    /*
-     * When we are here, the SPI driver is busy (in the background) getting the transactions sent. That happens
-     * mostly using DMA, so the CPU doesn't have much to do here. We're not going to wait for the transaction to
-     * finish because we may as well spend the time calculating the next line. When that is done, we can call
-     * send_line_finish, which will wait for the transfers to be done and check their status.
-    */
+    // * When we are here, the SPI driver is busy (in the background) getting the transactions sent. That happens
+    // * mostly using DMA, so the CPU doesn't have much to do here. We're not going to wait for the transaction to
+    // * finish because we may as well spend the time calculating the next line. When that is done, we can call
+    // * send_line_finish, which will wait for the transfers to be done and check their status.
 }
 
 //---------------------
@@ -640,3 +831,4 @@ void _TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t color, uint32_t 
 
     free(buf);
 }
+*/

@@ -340,7 +340,7 @@ void spi_pin_config(int unit, unsigned char sdi, unsigned char sdo, unsigned cha
 	spi_set_cspin(unit, cs);
 }
 
-static void IRAM_ATTR spi_master_op(int unit, unsigned int word_size, unsigned int len, unsigned char *out, unsigned char *in) {
+void IRAM_ATTR spi_master_op(int unit, unsigned int word_size, unsigned int len, unsigned char *out, unsigned char *in) {
 	unsigned int bytes = word_size * len; // Number of bytes to write / read
 	unsigned int idx = 0;
 

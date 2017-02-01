@@ -4,7 +4,7 @@
 #define _TFTSPI_H_
 
 #include <string.h>
-#include "driver/spi_master.h"
+//#include "driver/spi_master.h"
 #include "soc/gpio_struct.h"
 #include "driver/gpio.h"
 
@@ -41,6 +41,15 @@ typedef struct {
 } ili_init_cmd_t;
 
 
+typedef struct {
+    unsigned char spi;
+    unsigned char cs;
+    unsigned int  speed;
+    unsigned int  mode;
+    unsigned int  bits;
+} spi_userdata;
+
+
 #define ST7735_WIDTH  128
 #define ST7735_HEIGHT 160
 #define ILI9341_WIDTH  240
@@ -67,7 +76,7 @@ typedef struct {
 #define TFT_DISPOFF    0x28
 #define TFT_DISPON     0x29
 #define TFT_CASET      0x2A
-#define TFT_RASET      0x2B
+#define TFT_PASET      0x2B
 #define TFT_RAMWR      0x2C
 #define TFT_RAMRD      0x2E
 #define TFT_MADCTL	   0x36
@@ -200,19 +209,21 @@ typedef struct {
 #define bitmapdatatype uint16_t *
 
 
-spi_device_handle_t tft_spi;
-spi_device_handle_t touch_spi;
-uint8_t queued;
+uint16_t _width;
+uint16_t _height;
+//spi_device_handle_t tft_spi;
+//spi_device_handle_t touch_spi;
+//uint8_t queued;
 uint8_t tft_line[640];
 
-esp_err_t  touch_spi_init();
-esp_err_t  tft_spi_close();
+//esp_err_t  touch_spi_init();
+//esp_err_t  tft_spi_close();
 esp_err_t  tft_init_spi();
 void tft_cmd(const uint8_t cmd);
 void tft_data(const uint8_t *data, int len);
 esp_err_t tft_spi_init(uint8_t typ);
 void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
-void send_data_finish();
-void _TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t data, uint32_t len);
+void drawPixel(int16_t x, int16_t y, uint16_t color);
+void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t data, uint32_t len);
 
 #endif

@@ -29,6 +29,25 @@
 #define LUA_USE_TFT 1
 
 
+// Constants for ellipse function
+#define TFT_ELLIPSE_UPPER_RIGHT 0x01
+#define TFT_ELLIPSE_UPPER_LEFT  0x02
+#define TFT_ELLIPSE_LOWER_LEFT 0x04
+#define TFT_ELLIPSE_LOWER_RIGHT  0x08
+
+// Constants for Arc function
+// number representing the maximum angle (e.g. if 100, then if you pass in start=0 and end=50, you get a half circle)
+// this can be changed with setArcParams function at runtime
+#define DEFAULT_ARC_ANGLE_MAX 360
+// rotational offset in degrees defining position of value 0 (-90 will put it at the top of circle)
+// this can be changed with setAngleOffset function at runtime
+#define DEFAULT_ANGLE_OFFSET -90
+
+#define DEG_TO_RAD 0.01745329
+#define RAD_TO_DEG 57.2957786
+
+
+
 typedef struct {
 	uint8_t 	*font;
 	uint8_t 	x_size;
@@ -66,15 +85,13 @@ static dispWin_t dispWin = {
 
 extern uint8_t tft_DefaultFont[];
 
-static uint8_t tp_initialized = 0;	// touch panel initialized flag
+//static uint8_t tp_initialized = 0;	// touch panel initialized flag
 
 static int TFT_type = -1;
 static uint8_t *userfont = NULL;
 static uint8_t orientation = PORTRAIT;	// screen orientation
 static uint8_t rotation = 0;			// font rotation
 
-static uint16_t	_width = 320;
-static uint16_t	_height = 240;
 static uint8_t	_transparent = 0;
 static uint16_t	_fg = TFT_GREEN;
 static uint16_t _bg = TFT_BLACK;
@@ -90,57 +107,18 @@ static uint8_t	_forceFixed = 0;
 uint32_t tp_calx = 0x00010001;
 uint32_t tp_caly = 0x00010001;
 
+static float _arcAngleMax = DEFAULT_ARC_ANGLE_MAX;
+static float _angleOffset = DEFAULT_ANGLE_OFFSET;
+
 // ================ Basics drawing functions ===================================
-
-//----------------------------------------------------------------
-static void TFT_queuePixel(int16_t x, int16_t y, uint16_t color) {
-	if ((x < dispWin.x1) || (y < dispWin.y1) || (x >= dispWin.x2) || (y >= dispWin.y2)) return;
-
-	tft_line[0] = (uint8_t)(color >> 8);
-	tft_line[1] = (uint8_t)(color & 0x00FF);
-
-	if (queued) send_data_finish();
-	send_data(x, y, x+1, y+1, 1, tft_line);
-}
-
-//-------------------------------------------------------------------------------
-static void TFT_queueFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
-	// clipping
-	if ((x < dispWin.x1) || (x >= dispWin.x2) || (y >= dispWin.y2)) return;
-	if (y < dispWin.y1) y = dispWin.y1;
-	if ((y + h) > dispWin.y2) h = dispWin.y2 - y;
-
-	for (int i=0; i < (h*2); i+=2) {
-		tft_line[i] = (uint8_t)(color >> 8);
-		tft_line[i+1] = (uint8_t)(color & 0x00FF);
-	}
-	if (queued) send_data_finish();
-	send_data(x, y, x, y+h-1, (uint32_t)h, tft_line);
-}
-
-//-------------------------------------------------------------------------------
-static void TFT_queueFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
-	// clipping
-	if ((y < dispWin.y1) || (x >= dispWin.x2) || (y >= dispWin.y2)) return;
-	if (x < dispWin.x1) x = dispWin.x1;
-	if ((x + w) > dispWin.x2) w = dispWin.x2 - x;
-
-	for (int i=0; i < (w*2); i+=2) {
-		tft_line[i] = (uint8_t)(color >> 8);
-		tft_line[i+1] = (uint8_t)(color & 0x00FF);
-	}
-	if (queued) send_data_finish();
-	send_data(x, y, x+w-1, y, (uint32_t)w, tft_line);
-}
-
 
 // draw color pixel on screen
 //---------------------------------------------------------------
 static void TFT_drawPixel(int16_t x, int16_t y, uint16_t color) {
 
-  if ((x < dispWin.x1) || (y < dispWin.y1) || (x >= dispWin.x2) || (y >= dispWin.y2)) return;
+  if ((x < dispWin.x1) || (y < dispWin.y1) || (x > dispWin.x2) || (y >= dispWin.y2)) return;
 
-  _TFT_pushColorRep(x,y,x+1,y+1, color, 1);
+  drawPixel(x, y, color);
 }
 
 //------------------------------------------------------------------------------
@@ -150,7 +128,7 @@ static void TFT_drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 	if (y < dispWin.y1) y = dispWin.y1;
 	if ((y + h) > dispWin.y2) h = dispWin.y2 - y;
 
-	_TFT_pushColorRep(x, y, x, y+h-1, color, (uint32_t)h);
+	TFT_pushColorRep(x, y, x, y+h-1, color, (uint32_t)h);
 }
 
 //------------------------------------------------------------------------------
@@ -160,7 +138,7 @@ static void TFT_drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 	if (x < dispWin.x1) x = dispWin.x1;
 	if ((x + w) > dispWin.x2) w = dispWin.x2 - x;
 
-	_TFT_pushColorRep(x, y, x+w-1, y, color, (uint32_t)w);
+	TFT_pushColorRep(x, y, x+w-1, y, color, (uint32_t)w);
 }
 
 // Bresenham's algorithm - thx wikipedia - speed enhanced by Bodmer this uses
@@ -168,6 +146,15 @@ static void TFT_drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 //--------------------------------------------------------------------------------------
 static void TFT_drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_t color)
 {
+  if (x0 == x1) {
+	  if (y0 <= y1) TFT_drawFastVLine(x0, y0, y1-y0, color);
+	  else TFT_drawFastVLine(x0, y1, y0-y1, color);
+  }
+  if (y0 == y1) {
+	  if (x0 <= x1) TFT_drawFastHLine(x0, y0, x1-x0, color);
+	  else TFT_drawFastHLine(x1, y0, x0-x1, color);
+  }
+
   int steep = 0;
   if (abs(y1 - y0) > abs(x1 - x0)) steep = 1;
   if (steep) {
@@ -191,12 +178,12 @@ static void TFT_drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_queuePixel(y0, xs, color);
-        else TFT_queueFastVLine(y0, xs, dlen, color);
+        if (dlen == 1) TFT_drawPixel(y0, xs, color);
+        else TFT_drawFastVLine(y0, xs, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
     }
-    if (dlen) TFT_queueFastVLine(y0, xs, dlen, color);
+    if (dlen) TFT_drawFastVLine(y0, xs, dlen, color);
   }
   else
   {
@@ -205,14 +192,13 @@ static void TFT_drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_queuePixel(xs, y0, color);
-        else TFT_queueFastHLine(xs, y0, dlen, color);
+        if (dlen == 1) TFT_drawPixel(xs, y0, color);
+        else TFT_drawFastHLine(xs, y0, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
     }
-    if (dlen) TFT_queueFastHLine(xs, y0, dlen, color);
+    if (dlen) TFT_drawFastHLine(xs, y0, dlen, color);
   }
-  if (queued) send_data_finish();
 }
 
 // fill a rectangle
@@ -228,21 +214,20 @@ static void TFT_fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 	if ((y + h) > dispWin.y2) h = dispWin.y2 - y;
 	if (w == 0) w = 1;
 	if (h == 0) h = 1;
-	_TFT_pushColorRep(x, y, x+w-1, y+h-1, color, (uint32_t)(h*w));
+	TFT_pushColorRep(x, y, x+w-1, y+h-1, color, (uint32_t)(h*w));
 }
 
 //------------------------------------------
 static void TFT_fillScreen(uint16_t color) {
-	_TFT_pushColorRep(0, 0, _width-1, _height-1, color, (uint32_t)(_height*_width));
+	TFT_pushColorRep(0, 0, _width-1, _height-1, color, (uint32_t)(_height*_width));
 }
 
 //---------------------------------------------------------------------------------------
 static void TFT_drawRect(uint16_t x1,uint16_t y1,uint16_t w,uint16_t h, uint16_t color) {
-  TFT_queueFastHLine(x1,y1,w, color);
-  TFT_queueFastVLine(x1+w-1,y1,h, color);
-  TFT_queueFastHLine(x1,y1+h-1,w, color);
-  TFT_queueFastVLine(x1,y1,h, color);
-  if (queued) send_data_finish();
+  TFT_drawFastHLine(x1,y1,w, color);
+  TFT_drawFastVLine(x1+w-1,y1,h, color);
+  TFT_drawFastHLine(x1,y1+h-1,w, color);
+  TFT_drawFastVLine(x1,y1,h, color);
 }
 
 // Draw a triangle
@@ -314,7 +299,7 @@ static void TFT_fillTriangle(uint16_t x0, uint16_t y0,
     b = x0 + (x2 - x0) * (y - y0) / (y2 - y0);
     */
     if(a > b) swap(a,b);
-    TFT_queueFastHLine(a, y, b-a+1, color);
+    TFT_drawFastHLine(a, y, b-a+1, color);
   }
 
   // For lower part of triangle, find scanline crossings for segments
@@ -331,10 +316,8 @@ static void TFT_fillTriangle(uint16_t x0, uint16_t y0,
     b = x0 + (x2 - x0) * (y - y0) / (y2 - y0);
     */
     if(a > b) swap(a,b);
-    TFT_queueFastHLine(a, y, b-a+1, color);
+    TFT_drawFastHLine(a, y, b-a+1, color);
   }
-
-  if (queued) send_data_finish();
 }
 
 //----------------------------------------------------------------------------
@@ -345,10 +328,10 @@ static void TFT_drawCircle(int16_t x, int16_t y, int radius, uint16_t color) {
   int x1 = 0;
   int y1 = radius;
 
-  TFT_queuePixel(x, y + radius, color);
-  TFT_queuePixel(x, y - radius, color);
-  TFT_queuePixel(x + radius, y, color);
-  TFT_queuePixel(x - radius, y, color);
+  TFT_drawPixel(x, y + radius, color);
+  TFT_drawPixel(x, y - radius, color);
+  TFT_drawPixel(x + radius, y, color);
+  TFT_drawPixel(x - radius, y, color);
   while(x1 < y1) {
     if (f >= 0) {
       y1--;
@@ -358,16 +341,15 @@ static void TFT_drawCircle(int16_t x, int16_t y, int radius, uint16_t color) {
     x1++;
     ddF_x += 2;
     f += ddF_x;
-    TFT_queuePixel(x + x1, y + y1, color);
-    TFT_queuePixel(x - x1, y + y1, color);
-    TFT_queuePixel(x + x1, y - y1, color);
-    TFT_queuePixel(x - x1, y - y1, color);
-    TFT_queuePixel(x + y1, y + x1, color);
-    TFT_queuePixel(x - y1, y + x1, color);
-    TFT_queuePixel(x + y1, y - x1, color);
-    TFT_queuePixel(x - y1, y - x1, color);
+    TFT_drawPixel(x + x1, y + y1, color);
+    TFT_drawPixel(x - x1, y + y1, color);
+    TFT_drawPixel(x + x1, y - y1, color);
+    TFT_drawPixel(x - x1, y - y1, color);
+    TFT_drawPixel(x + y1, y + x1, color);
+    TFT_drawPixel(x - y1, y + x1, color);
+    TFT_drawPixel(x + y1, y - x1, color);
+    TFT_drawPixel(x - y1, y - x1, color);
   }
-  if (queued) send_data_finish();
 }
 
 //----------------------------------------------------------------------------
@@ -377,14 +359,531 @@ static void TFT_fillCircle(int16_t x, int16_t y, int radius, uint16_t color) {
   for (y1=-radius; y1<=0; y1++) {
     for (x1=-radius; x1<=0; x1++) {
       if (x1*x1+y1*y1 <= radius*radius) {
-        TFT_queueFastHLine(x+x1, y+y1, 2*(-x1), color);
-        TFT_queueFastHLine(x+x1, y-y1, 2*(-x1), color);
+        TFT_drawFastHLine(x+x1, y+y1, 2*(-x1), color);
+        TFT_drawFastHLine(x+x1, y-y1, 2*(-x1), color);
         break;
       }
     }
   }
-  if (queued) send_data_finish();
 }
+
+//--------------------------------------------------------------------------------------------------------------------
+static void TFT_draw_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16_t y0, uint16_t color, uint8_t option)
+{
+    /* upper right */
+    if ( option & TFT_ELLIPSE_UPPER_RIGHT )
+    {
+      TFT_drawPixel(x0 + x, y0 - y, color);
+    }
+
+    /* upper left */
+    if ( option & TFT_ELLIPSE_UPPER_LEFT )
+    {
+      TFT_drawPixel(x0 - x, y0 - y, color);
+    }
+
+    /* lower right */
+    if ( option & TFT_ELLIPSE_LOWER_RIGHT )
+    {
+      TFT_drawPixel(x0 + x, y0 + y, color);
+    }
+
+    /* lower left */
+    if ( option & TFT_ELLIPSE_LOWER_LEFT )
+    {
+      TFT_drawPixel(x0 - x, y0 + y, color);
+    }
+}
+
+//--------------------------------------------------------------------------------------------------------------
+static void TFT_draw_ellipse(uint16_t x0, uint16_t y0, uint16_t rx, uint16_t ry, uint16_t color, uint8_t option)
+{
+  uint16_t x, y;
+  int32_t xchg, ychg;
+  int32_t err;
+  int32_t rxrx2;
+  int32_t ryry2;
+  int32_t stopx, stopy;
+
+  rxrx2 = rx;
+  rxrx2 *= rx;
+  rxrx2 *= 2;
+
+  ryry2 = ry;
+  ryry2 *= ry;
+  ryry2 *= 2;
+
+  x = rx;
+  y = 0;
+
+  xchg = 1;
+  xchg -= rx;
+  xchg -= rx;
+  xchg *= ry;
+  xchg *= ry;
+
+  ychg = rx;
+  ychg *= rx;
+
+  err = 0;
+
+  stopx = ryry2;
+  stopx *= rx;
+  stopy = 0;
+
+  while( stopx >= stopy )
+  {
+	TFT_draw_ellipse_section(x, y, x0, y0, color, option);
+    y++;
+    stopy += rxrx2;
+    err += ychg;
+    ychg += rxrx2;
+    if ( 2*err+xchg > 0 )
+    {
+      x--;
+      stopx -= ryry2;
+      err += xchg;
+      xchg += ryry2;
+    }
+  }
+
+  x = 0;
+  y = ry;
+
+  xchg = ry;
+  xchg *= ry;
+
+  ychg = 1;
+  ychg -= ry;
+  ychg -= ry;
+  ychg *= rx;
+  ychg *= rx;
+
+  err = 0;
+
+  stopx = 0;
+
+  stopy = rxrx2;
+  stopy *= ry;
+
+
+  while( stopx <= stopy )
+  {
+	TFT_draw_ellipse_section(x, y, x0, y0, color, option);
+    x++;
+    stopx += ryry2;
+    err += xchg;
+    xchg += ryry2;
+    if ( 2*err+ychg > 0 )
+    {
+      y--;
+      stopy -= rxrx2;
+      err += ychg;
+      ychg += rxrx2;
+    }
+  }
+
+}
+
+//-------------------------------------------------------------------------------------------------------------
+static void TFT_DrawEllipse(uint16_t x0, uint16_t y0, uint16_t rx, uint16_t ry, uint16_t color, uint8_t option)
+{
+  /* check for bounding box */
+  {
+    uint16_t rxp, rxp2;
+    uint16_t ryp, ryp2;
+
+    rxp = rx;
+    rxp++;
+    rxp2 = rxp;
+    rxp2 *= 2;
+
+    ryp = ry;
+    ryp++;
+    ryp2 = ryp;
+    ryp2 *= 2;
+
+    //if ( TFT_IsBBXIntersection(x0-rxp, y0-ryp, rxp2, ryp2) == 0) return;
+  }
+
+  TFT_draw_ellipse(x0, y0, rx, ry, color, option);
+}
+
+//---------------------------------------------------------------------------------------------------------------------------
+static void TFT_draw_filled_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16_t y0, uint16_t color, uint8_t option)
+{
+    /* upper right */
+    if ( option & TFT_ELLIPSE_UPPER_RIGHT )
+    {
+    	TFT_drawFastVLine(x0+x, y0-y, y+1, color);
+    }
+
+    /* upper left */
+    if ( option & TFT_ELLIPSE_UPPER_LEFT )
+    {
+    	TFT_drawFastVLine(x0-x, y0-y, y+1, color);
+    }
+
+    /* lower right */
+    if ( option & TFT_ELLIPSE_LOWER_RIGHT )
+    {
+    	TFT_drawFastVLine(x0+x, y0, y+1, color);
+    }
+
+    /* lower left */
+    if ( option & TFT_ELLIPSE_LOWER_LEFT )
+    {
+    	TFT_drawFastVLine(x0-x, y0, y+1, color);
+    }
+}
+
+//---------------------------------------------------------------------------------------------------------------------
+static void TFT_draw_filled_ellipse(uint16_t x0, uint16_t y0, uint16_t rx, uint16_t ry, uint16_t color, uint8_t option)
+{
+  uint16_t x, y;
+  int32_t xchg, ychg;
+  int32_t err;
+  int32_t rxrx2;
+  int32_t ryry2;
+  int32_t stopx, stopy;
+
+  rxrx2 = rx;
+  rxrx2 *= rx;
+  rxrx2 *= 2;
+
+  ryry2 = ry;
+  ryry2 *= ry;
+  ryry2 *= 2;
+
+  x = rx;
+  y = 0;
+
+  xchg = 1;
+  xchg -= rx;
+  xchg -= rx;
+  xchg *= ry;
+  xchg *= ry;
+
+  ychg = rx;
+  ychg *= rx;
+
+  err = 0;
+
+  stopx = ryry2;
+  stopx *= rx;
+  stopy = 0;
+
+  while( stopx >= stopy )
+  {
+	TFT_draw_filled_ellipse_section(x, y, x0, y0, color, option);
+    y++;
+    stopy += rxrx2;
+    err += ychg;
+    ychg += rxrx2;
+    if ( 2*err+xchg > 0 )
+    {
+      x--;
+      stopx -= ryry2;
+      err += xchg;
+      xchg += ryry2;
+    }
+  }
+
+  x = 0;
+  y = ry;
+
+  xchg = ry;
+  xchg *= ry;
+
+  ychg = 1;
+  ychg -= ry;
+  ychg -= ry;
+  ychg *= rx;
+  ychg *= rx;
+
+  err = 0;
+
+  stopx = 0;
+
+  stopy = rxrx2;
+  stopy *= ry;
+
+
+  while( stopx <= stopy )
+  {
+	TFT_draw_filled_ellipse_section(x, y, x0, y0, color, option);
+    x++;
+    stopx += ryry2;
+    err += xchg;
+    xchg += ryry2;
+    if ( 2*err+ychg > 0 )
+    {
+      y--;
+      stopy -= rxrx2;
+      err += ychg;
+      ychg += rxrx2;
+    }
+  }
+
+}
+
+//-------------------------------------------------------------------------------------------------------------------
+static void TFT_DrawFilledEllipse(uint16_t x0, uint16_t y0, uint16_t rx, uint16_t ry, uint16_t color, uint8_t option)
+{
+  /* check for bounding box */
+  {
+    uint16_t rxp, rxp2;
+    uint16_t ryp, ryp2;
+
+    rxp = rx;
+    rxp++;
+    rxp2 = rxp;
+    rxp2 *= 2;
+
+    ryp = ry;
+    ryp++;
+    ryp2 = ryp;
+    ryp2 *= 2;
+
+    //if ( TFT_IsBBXIntersection(x0-rxp, y0-ryp, rxp2, ryp2) == 0) return;
+  }
+
+  TFT_draw_filled_ellipse(x0, y0, rx, ry, color, option);
+}
+
+
+//=====================================================================================================
+
+static float cosDegrees(float angle) {
+	//float radians = angle / (float)360 * 2 * PI;
+	//Serial << "COS_LOOKUP angle:" << (float)angle << " radians:" << radians << " cos:" << cos(radians) << " return: " << cos(radians) * (double)65535 << endl;
+	return cos(angle * DEG_TO_RAD);
+}
+
+static float sinDegrees(float angle) {
+	//float radians = angle / (float)360 * 2 * PI;
+	//Serial << "SIN_LOOKUP angle:" << (float)angle << " radians:" << radians << " sin:" << sin(radians) << " return: " << sin(radians) * (double)65535 << endl;
+	return sin(angle * DEG_TO_RAD);
+}
+/*
+static void fillScanline16(uint16_t color, uint16_t len) {
+
+	for (uint16_t i = 0; i < len; i+=2) {
+		tft_line[i] = color;
+		tft_line[i+1] = color;
+	}
+}
+
+static void FillScanline16(uint16_t color) {
+	for (uint16_t i = 0; i < TFT_LINEBUF_MAX_SIZE; i+=2) {
+		tft_line[i] = color;
+		tft_line[i+1] = color;
+	}
+}
+*/
+
+// Adapted from: Marek Buriak (https://github.com/marekburiak/ILI9341_due)
+//---------------------------------------------------------------------------------------------------------------------------------------
+static void TFT_fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint16_t thickness, float start, float end, uint16_t color) {
+	int16_t xmin = 65535, xmax = -32767, ymin = 32767, ymax = -32767;
+	float cosStart, sinStart, cosEnd, sinEnd;
+	float r, t;
+	float startAngle, endAngle;
+
+	//Serial << "start: " << start << " end: " << end << endl;
+	startAngle = (start / _arcAngleMax) * 360;	// 252
+	endAngle = (end / _arcAngleMax) * 360;		// 807
+	//Serial << "startAngle: " << startAngle << " endAngle: " << endAngle << endl;
+
+	while (startAngle < 0) startAngle += 360;
+	while (endAngle < 0) endAngle += 360;
+	while (startAngle > 360) startAngle -= 360;
+	while (endAngle > 360) endAngle -= 360;
+	//Serial << "startAngleAdj: " << startAngle << " endAngleAdj: " << endAngle << endl;
+	//if (endAngle == 0) endAngle = 360;
+
+	if (startAngle > endAngle) {
+		TFT_fillArcOffsetted(cx, cy, radius, thickness, ((startAngle) / (float)360) * _arcAngleMax, _arcAngleMax, color);
+		TFT_fillArcOffsetted(cx, cy, radius, thickness, 0, ((endAngle) / (float)360) * _arcAngleMax, color);
+	}
+	else {
+		// Calculate bounding box for the arc to be drawn
+		cosStart = cosDegrees(startAngle);
+		sinStart = sinDegrees(startAngle);
+		cosEnd = cosDegrees(endAngle);
+		sinEnd = sinDegrees(endAngle);
+
+		//Serial << cosStart << " " << sinStart << " " << cosEnd << " " << sinEnd << endl;
+
+		r = radius;
+		// Point 1: radius & startAngle
+		t = r * cosStart;
+		if (t < xmin) xmin = t;
+		if (t > xmax) xmax = t;
+		t = r * sinStart;
+		if (t < ymin) ymin = t;
+		if (t > ymax) ymax = t;
+
+		// Point 2: radius & endAngle
+		t = r * cosEnd;
+		if (t < xmin) xmin = t;
+		if (t > xmax) xmax = t;
+		t = r * sinEnd;
+		if (t < ymin) ymin = t;
+		if (t > ymax) ymax = t;
+
+		r = radius - thickness;
+		// Point 3: radius-thickness & startAngle
+		t = r * cosStart;
+		if (t < xmin) xmin = t;
+		if (t > xmax) xmax = t;
+		t = r * sinStart;
+		if (t < ymin) ymin = t;
+		if (t > ymax) ymax = t;
+
+		// Point 4: radius-thickness & endAngle
+		t = r * cosEnd;
+		if (t < xmin) xmin = t;
+		if (t > xmax) xmax = t;
+		t = r * sinEnd;
+		if (t < ymin) ymin = t;
+		if (t > ymax) ymax = t;
+
+
+		//Serial << xmin << " " << xmax << " " << ymin << " " << ymax << endl;
+		// Corrections if arc crosses X or Y axis
+		if ((startAngle < 90) && (endAngle > 90)) {
+			ymax = radius;
+		}
+
+		if ((startAngle < 180) && (endAngle > 180)) {
+			xmin = -radius;
+		}
+
+		if ((startAngle < 270) && (endAngle > 270)) {
+			ymin = -radius;
+		}
+
+		// Slopes for the two sides of the arc
+		float sslope = (float)cosStart / (float)sinStart;
+		float eslope = (float)cosEnd / (float)sinEnd;
+
+		//Serial << "sslope2: " << sslope << " eslope2:" << eslope << endl;
+
+		if (endAngle == 360) eslope = -1000000;
+
+		int ir2 = (radius - thickness) * (radius - thickness);
+		int or2 = radius * radius;
+		//Serial << "ymin: " << ymin << " ymax: " << ymax << endl;
+
+		//FillScanline16(color);
+
+		for (int x = xmin; x <= xmax; x++) {
+			bool y1StartFound = false, y2StartFound = false;
+			bool y1EndFound = false, y2EndSearching = false;
+			int y1s = 0, y1e = 0, y2s = 0;
+			for (int y = ymin; y <= ymax; y++)
+			{
+				int x2 = x * x;
+				int y2 = y * y;
+
+				if (
+					(x2 + y2 < or2 && x2 + y2 >= ir2) && (
+					(y > 0 && startAngle < 180 && x <= y * sslope) ||
+					(y < 0 && startAngle > 180 && x >= y * sslope) ||
+					(y < 0 && startAngle <= 180) ||
+					(y == 0 && startAngle <= 180 && x < 0) ||
+					(y == 0 && startAngle == 0 && x > 0)
+					) && (
+					(y > 0 && endAngle < 180 && x >= y * eslope) ||
+					(y < 0 && endAngle > 180 && x <= y * eslope) ||
+					(y > 0 && endAngle >= 180) ||
+					(y == 0 && endAngle >= 180 && x < 0) ||
+					(y == 0 && startAngle == 0 && x > 0)))
+				{
+					if (!y1StartFound)	//start of the higher line found
+					{
+						y1StartFound = true;
+						y1s = y;
+					}
+					else if (y1EndFound && !y2StartFound) //start of the lower line found
+					{
+						//Serial << "Found y2 start x: " << x << " y:" << y << endl;
+						y2StartFound = true;
+						//drawPixel_cont(cx+x, cy+y, ILI9341_BLUE);
+						y2s = y;
+						y += y1e - y1s - 1;	// calculate the most probable end of the lower line (in most cases the length of lower line is equal to length of upper line), in the next loop we will validate if the end of line is really there
+						if (y > ymax - 1) // the most probable end of line 2 is beyond ymax so line 2 must be shorter, thus continue with pixel by pixel search
+						{
+							y = y2s;	// reset y and continue with pixel by pixel search
+							y2EndSearching = true;
+						}
+
+						//Serial << "Upper line length: " << (y1e - y1s) << " Setting y to " << y << endl;
+					}
+					else if (y2StartFound && !y2EndSearching)
+					{
+						// we validated that the probable end of the lower line has a pixel, continue with pixel by pixel search, in most cases next loop with confirm the end of lower line as it will not find a valid pixel
+						y2EndSearching = true;
+					}
+					//Serial << "x:" << x << " y:" << y << endl;
+					//drawPixel_cont(cx+x, cy+y, ILI9341_BLUE);
+				}
+				else
+				{
+					if (y1StartFound && !y1EndFound) //higher line end found
+					{
+						y1EndFound = true;
+						y1e = y - 1;
+						//Serial << "line: " << y1s << " - " << y1e << endl;
+						TFT_drawFastVLine(cx + x, cy + y1s, y - y1s, color);
+						if (y < 0)
+						{
+							//Serial << x << " " << y << endl;
+							y = abs(y); // skip the empty middle
+						}
+						else
+							break;
+					}
+					else if (y2StartFound)
+					{
+						if (y2EndSearching)
+						{
+							//Serial << "Found final end at y: " << y << endl;
+							// we found the end of the lower line after pixel by pixel search
+							TFT_drawFastVLine(cx + x, cy + y2s, y - y2s, color);
+							y2EndSearching = false;
+							break;
+						}
+						else
+						{
+							//Serial << "Expected end not found" << endl;
+							// the expected end of the lower line is not there so the lower line must be shorter
+							y = y2s;	// put the y back to the lower line start and go pixel by pixel to find the end
+							y2EndSearching = true;
+						}
+					}
+					//else
+					//drawPixel_cont(cx+x, cy+y, ILI9341_RED);
+				}
+				//
+
+				//delay(75);
+			}
+			if (y1StartFound && !y1EndFound)
+			{
+				y1e = ymax;
+				//Serial << "line: " << y1s << " - " << y1e << endl;
+				TFT_drawFastVLine(cx + x, cy + y1s, y1e - y1s + 1, color);
+			}
+			else if (y2StartFound && y2EndSearching)	// we found start of lower line but we are still searching for the end
+			{										// which we haven't found in the loop so the last pixel in a column must be the end
+				TFT_drawFastVLine(cx + x, cy + y2s, ymax - y2s + 1, color);
+			}
+		}
+	}
+}
+
 
 // ================ Font and string functions ==================================
 
@@ -613,13 +1112,12 @@ static int rotatePropChar(int x, int y, int offset) {
       int newX = (int)(x + (((offset + i) * cos_radian) - ((j+fontChar.adjYOffset)*sin_radian)));
       int newY = (int)(y + (((j+fontChar.adjYOffset) * cos_radian) + ((offset + i) * sin_radian)));
 
-      if ((ch & mask) != 0) TFT_queuePixel(newX,newY,_fg);
-      else if (!_transparent) TFT_queuePixel(newX,newY,_bg);
+      if ((ch & mask) != 0) TFT_drawPixel(newX,newY,_fg);
+      else if (!_transparent) TFT_drawPixel(newX,newY,_bg);
 
       mask >>= 1;
     }
   }
-  if (queued) send_data_finish();
 
   return fontChar.xDelta+1;
 }
@@ -648,12 +1146,11 @@ static int printProportionalChar(int x, int y) {
       if ((ch & mask) !=0) {
         cx = (uint16_t)(x+fontChar.xOffset+i);
         cy = (uint16_t)(y+j+fontChar.adjYOffset);
-        TFT_queuePixel(cx, cy, _fg);
+        TFT_drawPixel(cx, cy, _fg);
       }
       mask >>= 1;
     }
   }
-  if (queued) send_data_finish();
 
   return fontChar.xDelta;
 }
@@ -684,14 +1181,13 @@ static void printChar(uint8_t c, int x, int y) {
         if ((ch & mask) !=0) {
           cx = (uint16_t)(x+i+(k*8));
           cy = (uint16_t)(y+j);
-          TFT_queuePixel(cx, cy, _fg);
+          TFT_drawPixel(cx, cy, _fg);
         }
         mask >>= 1;
       }
     }
     temp += (fz);
   }
-  if (queued) send_data_finish();
 }
 
 // rotated fixed width character
@@ -717,14 +1213,13 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
         newx=(int)(x+(((i+(zz*8)+(pos*cfont.x_size))*cos_radian)-((j)*sin_radian)));
         newy=(int)(y+(((j)*cos_radian)+((i+(zz*8)+(pos*cfont.x_size))*sin_radian)));
 
-        if ((ch & mask) != 0) TFT_queuePixel(newx,newy,_fg);
-        else if (!_transparent) TFT_queuePixel(newx,newy,_bg);
+        if ((ch & mask) != 0) TFT_drawPixel(newx,newy,_fg);
+        else if (!_transparent) TFT_drawPixel(newx,newy,_bg);
         mask >>= 1;
       }
     }
     temp+=(fz);
   }
-  if (queued) send_data_finish();
   // calculate x,y for the next char
   TFT_X = (int)(x + ((pos+1) * cfont.x_size * cos_radian));
   TFT_Y = (int)(y + ((pos+1) * cfont.x_size * sin_radian));
@@ -1395,7 +1890,6 @@ static UINT tjd_output (
 	    if (right > _width) right = _width-1;
 	    if (bottom > _height) bottom = _height-1;
 		//printf("output: %d [%d] (%d,%d,%d,%d)\r\n", len, bufidx/2, left,top,right,bottom);
-	    if (queued) send_data_finish();
 	    send_data(left, top, right, bottom, bufidx/2, tft_line);
 	}
 	else {
@@ -1520,7 +2014,6 @@ static int ltft_jpg_image( lua_State* L )
 			dev.y = y;
 			// Start to decompress the JPEG file
 			rc = jd_decomp(&jd, tjd_output, scale);
-		    if (queued) send_data_finish();
 			if (rc != JDR_OK) {
 				printf("jpg decompression error %d\r\n", rc);
 			}
@@ -1601,7 +2094,6 @@ static int tft_image( lua_State* L )
 		break;
 	}
 
-    if (queued) send_data_finish();
     send_data(x, y, xend, y, xsize, tft_line);
 
 	y++;
@@ -1609,7 +2101,6 @@ static int tft_image( lua_State* L )
 	ysize--;
 
   } while (ysize > 0);
-  if (queued) send_data_finish();
 
   fclose(fhndl);
 
@@ -1726,14 +2217,12 @@ exithd:
 			j += 2;
 		}
 		//printf("npixel: %d\n", disp_xsize);
-	    if (queued) send_data_finish();
 	    send_data(x, y, xend, y, disp_xsize, tft_line);
 
 		y++;	// next image line
 		if (y >= _height) break;
 		ysize--;
 	}
-    if (queued) send_data_finish();
 
 exit:
 	fclose(fhndl);
@@ -1801,7 +2290,7 @@ static int tft_clear( lua_State* L )
 	if (lua_gettop(L) > 0) color = getColor( L, 1 );
 
 	int start = clock();
-	_TFT_pushColorRep(0, 0, _width-1, _height-1, TFT_BLACK, (uint32_t)(_height*_width));
+	TFT_pushColorRep(0, 0, _width-1, _height-1, color, (uint32_t)(_height*_width));
 
 	lua_pushinteger(L, clock() - start);
 	_bg = color;
@@ -2013,9 +2502,11 @@ static int tft_putpixel( lua_State* L )
 
   if (lua_gettop(L) > 2) color = getColor( L, 3 );
 
+  int end, start = clock();
   TFT_drawPixel(x,y,color);
-
-  return 0;
+  end = clock();
+  lua_pushinteger(L, end-start);
+  return 1;
 }
 
 //=====================================
@@ -2065,6 +2556,49 @@ static int tft_circle( lua_State* L )
   if (fillcolor != color) TFT_drawCircle(x,y,r,color);
   return 0;
 }
+
+//====================================
+static int tft_ellipse( lua_State* L )
+{
+  if (checkParam(5, L)) return 0;
+
+  uint16_t fillcolor = _bg;
+  uint8_t opt = 15;
+
+  if (lua_gettop(L) > 5) fillcolor = getColor( L, 6 );
+  if (lua_gettop(L) > 6) opt = getColor( L, 7 ) & 0x0F;
+
+  uint16_t x = luaL_checkinteger( L, 1 );
+  uint16_t y = luaL_checkinteger( L, 2 );
+  uint16_t rx = luaL_checkinteger( L, 3 );
+  uint16_t ry = luaL_checkinteger( L, 4 );
+  uint16_t color = getColor( L, 5 );
+
+  if (lua_gettop(L) > 5) TFT_DrawFilledEllipse(x, y, rx, ry, fillcolor, opt);
+  if (fillcolor != color) TFT_DrawEllipse(x, y, rx, ry, color, opt);
+
+  return 0;
+}
+
+//====================================
+static int tft_arc( lua_State* L )
+{
+  if (checkParam(7, L)) return 0;
+
+  uint16_t cx = luaL_checkinteger( L, 1 );
+  uint16_t cy = luaL_checkinteger( L, 2 );
+  uint16_t r = luaL_checkinteger( L, 3 );
+  uint16_t th = luaL_checkinteger( L, 4 );
+  float start = luaL_checknumber( L, 5 );
+  float end = luaL_checknumber( L, 6 );
+  uint16_t color = getColor( L, 7 );
+
+  TFT_fillArcOffsetted(cx, cy, r, th, start, end, color);
+
+  return 0;
+}
+
+
 
 //=====================================
 static int tft_triangle( lua_State* L )
@@ -2143,6 +2677,7 @@ static int tft_write( lua_State* L )
 
 // ============= Touch panel functions =========================================
 
+/*
 //-----------------------------------
 static int _tp_get_data(uint8_t type)
 {
@@ -2219,13 +2754,11 @@ static int tp_get_data(uint8_t type, int samples)
 	}
 	else val = vbuf[0];
 
-	/*
-	tmstop = vm_time_ust_get_count();
-	uint32_t dur;
-	if (tmstop > tmstart) dur = tmstop - tmstart;
-	else dur = tmstop + (0xFFFFFFFF - tmstart);
+	//tmstop = vm_time_ust_get_count();
+	//uint32_t dur;
+	//if (tmstop > tmstart) dur = tmstop - tmstart;
+	//else dur = tmstop + (0xFFFFFFFF - tmstart);
 	//printf("Read %02X: time=%d, val=%d, min=%d, max=%d, dif=%d\n", type, dur, val, minval, maxval, (maxval-minval));
-	*/
 
     return val;
 }
@@ -2349,6 +2882,7 @@ exit:
 	lua_pushinteger(L, Y);
 	return 2;
 }
+*/
 
 /*
 //=======================================
@@ -2384,6 +2918,31 @@ static int tft_set_cal(lua_State *L)
     return 0;
 }
 
+//---------------------------------
+static int TFT_test(lua_State *L) {
+	uint16_t x,y;
+	uint16_t color = luaL_checkinteger(L, 1);
+
+	uint32_t end, start = clock();
+	for (y=0;y <_height;y++) {
+		for (x=0;x <_width;x++) {
+			drawPixel(x,y,color);
+		}
+	}
+	end = clock();
+	lua_pushinteger(L, end-start);
+
+    vTaskDelay(1000 / portTICK_RATE_MS);
+
+    start = clock();
+	TFT_pushColorRep(0, 0, _width-1, _height-1, TFT_YELLOW, (uint32_t)(_height*_width));
+	end = clock();
+	lua_pushinteger(L, end-start);
+
+	return 2;
+}
+
+
 
 // =============================================================================
 
@@ -2413,6 +2972,8 @@ static const LUA_REG_TYPE tft_map[] = {
 	{ LSTRKEY( "line" ),			LFUNCVAL( tft_drawline )},
 	{ LSTRKEY( "rect" ),			LFUNCVAL( tft_rect )},
 	{ LSTRKEY( "circle" ),			LFUNCVAL( tft_circle )},
+	{ LSTRKEY( "ellipse" ),			LFUNCVAL( tft_ellipse )},
+	{ LSTRKEY( "arc" ),				LFUNCVAL( tft_arc )},
 	{ LSTRKEY( "triangle" ),		LFUNCVAL( tft_triangle )},
 	{ LSTRKEY( "write" ),			LFUNCVAL( tft_write )},
 	{ LSTRKEY( "image" ),			LFUNCVAL( tft_image )},
@@ -2421,10 +2982,11 @@ static const LUA_REG_TYPE tft_map[] = {
 	{ LSTRKEY( "hsb2rgb" ),			LFUNCVAL( tft_HSBtoRGB )},
 	{ LSTRKEY( "setbrightness" ),	LFUNCVAL( tft_set_brightness )},
 	//{ LSTRKEY( "ontouch" ),			LFUNCVAL( tft_on_touch )},
-	{ LSTRKEY( "gettouch" ),		LFUNCVAL( tft_read_touch )},
-	{ LSTRKEY( "getrawtouch" ),		LFUNCVAL( tft_get_touch )},
+	//{ LSTRKEY( "gettouch" ),		LFUNCVAL( tft_read_touch )},
+	//{ LSTRKEY( "getrawtouch" ),		LFUNCVAL( tft_get_touch )},
 	//{ LSTRKEY( "set_touch_cs" ),	LFUNCVAL( tft_set_touch_cs )},
 	{ LSTRKEY( "setcal" ),			LFUNCVAL( tft_set_cal )},
+	{ LSTRKEY( "test" ),			LFUNCVAL( TFT_test )},
 #if LUA_USE_ROTABLE
 	// Constant definitions
 	  { LSTRKEY( "PORTRAIT" ),       LNUMVAL( PORTRAIT ) },
