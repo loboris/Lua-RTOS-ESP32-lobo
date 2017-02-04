@@ -3,10 +3,18 @@
 #ifndef _TFTSPI_H_
 #define _TFTSPI_H_
 
+#include "luartos.h"
+
+#if LUA_USE_SCREEN
+#define LUA_USE_TFT 1
+#endif
+
+#if LUA_USE_TFT
+
 #include <string.h>
-//#include "driver/spi_master.h"
 #include "soc/gpio_struct.h"
 #include "driver/gpio.h"
+#include "drivers/spi.h"
 
 //#define TFT_USE_BKLT	1
 #define TFT_SOFT_RESET	1
@@ -42,12 +50,13 @@ typedef struct {
 
 
 typedef struct {
-    unsigned char spi;
-    unsigned char cs;
-    unsigned int  speed;
-    unsigned int  mode;
-    unsigned int  bits;
-} spi_userdata;
+    unsigned char	spi;
+    unsigned char	dc;
+    unsigned int	speed;
+    unsigned int	mode;
+    unsigned int	bits;
+    spi_resources_t	resources;
+} tft_spi_config_t;
 
 
 #define ST7735_WIDTH  128
@@ -203,27 +212,41 @@ typedef struct {
 #define BOTTOM	-4
 
 #define DEFAULT_FONT	0
-#define FONT_7SEG		1
-#define USER_FONT		2
+#define DEJAVU18_FONT	1
+#define DEJAVU24_FONT	2
+#define UBUNTU16_FONT	3
+#define COMIC24_FONT	4
+#define MINYA24_FONT	5
+#define TOONEY32_FONT	6
+#define FONT_7SEG		7
+#define USER_FONT		8
 
 #define bitmapdatatype uint16_t *
 
 
 uint16_t _width;
 uint16_t _height;
-//spi_device_handle_t tft_spi;
-//spi_device_handle_t touch_spi;
-//uint8_t queued;
 uint8_t tft_line[640];
 
-//esp_err_t  touch_spi_init();
-//esp_err_t  tft_spi_close();
-esp_err_t  tft_init_spi();
+void tft_set_defaults();
+
+driver_error_t *tft_select_disp();
+driver_error_t *tft_select_touch();
+driver_error_t *tft_spi_init(uint8_t typ);
+
+tft_spi_config_t *tft_get_config(uint8_t which);
+
 void tft_cmd(const uint8_t cmd);
 void tft_data(const uint8_t *data, int len);
-esp_err_t tft_spi_init(uint8_t typ);
 void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
 void drawPixel(int16_t x, int16_t y, uint16_t color);
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t data, uint32_t len);
+void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
+uint16_t readPixel(int16_t x, int16_t y);
+void fill_tftline(uint16_t color, uint16_t len);
+
+uint16_t touch_get_data(uint8_t type);
+
+#endif  //LUA_USE_TFT
 
 #endif

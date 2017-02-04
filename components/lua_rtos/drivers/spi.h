@@ -45,6 +45,8 @@ typedef struct {
 
 // SPI errors
 #define SPI_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(SPI_DRIVER_ID) |  0)
+#define SPI_ERR_INVALID_MODE             (DRIVER_EXCEPTION_BASE(SPI_DRIVER_ID) |  1)
+#define SPI_ERR_INVALID_UNIT             (DRIVER_EXCEPTION_BASE(SPI_DRIVER_ID) |  2)
 
 driver_error_t *spi_init(int unit);
 
@@ -58,7 +60,8 @@ int spi_setup(int unit);
 /*
  * Set the SPI bit rate for a device (in kHz).
  */
-void spi_set_speed(int unit, unsigned int khz);
+//void spi_set_speed(int unit, unsigned int sck);
+int spi_set_speed(int unit, unsigned int sck);
 
 /*
  * Setup the chip select pin for the SPI device.

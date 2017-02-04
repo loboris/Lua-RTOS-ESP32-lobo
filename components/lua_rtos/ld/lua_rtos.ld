@@ -117,6 +117,14 @@ SECTIONS {
     KEEP(*(.ws2812_error_map))
     LONG(0) LONG(0)
 
+    spi_errors = ABSOLUTE(.);
+    KEEP(*(.spi_errors))
+    LONG(0) LONG(0)
+
+    spi_error_map = ABSOLUTE(.);
+    KEEP(*(.spi_error_map))
+    LONG(0) LONG(0)
+
     _lua_rtos_rodata_end = ABSOLUTE(.);
   } >drom0_0_seg
 }

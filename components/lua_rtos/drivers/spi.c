@@ -64,12 +64,18 @@ struct spi {
     unsigned int dirty;   // if 1 device must be reconfigured at next spi_select
 };
 
+/*
 static const driver_message_t spi_errors[] = {
 	{"",""},
 	{"can't setup","CannotSetup"},
 	{"invalid number mode","InvalidMode"},
 	{"invalid unit","InvalidUnit"},
 };
+*/
+
+DRIVER_REGISTER_ERROR(SPI, spi, CannotSetup, "can't setup", SPI_ERR_CANT_INIT);
+DRIVER_REGISTER_ERROR(SPI, spi, InvalidMode, "invalid number mode", SPI_ERR_INVALID_MODE);
+DRIVER_REGISTER_ERROR(SPI, spi, InvalidUnit, "invalid unit", SPI_ERR_INVALID_UNIT);
 
 #define SPI_DRIVER driver_get_by_name("spi")
 
@@ -109,6 +115,7 @@ typedef union {
     };
 } spiClk_t;
 
+/*
 uint32_t spiFrequencyToClockDiv(uint32_t freq) {
 
     if(freq >= CPU_CLK_FREQ) {
@@ -161,6 +168,7 @@ uint32_t spiFrequencyToClockDiv(uint32_t freq) {
     }
     return bestReg.regValue;
 }
+*/
 
 /*
  * End of extracted code from arduino-esp32
@@ -181,12 +189,36 @@ void spi_set_mode(int unit, int mode) {
  * Set the SPI bit rate for a device and stores the clock divisor needed
  * for this bit rate. Nothing is changed at hardware level.
  */
+/*
 void spi_set_speed(int unit, unsigned int sck) {
     struct spi *dev = &spi[unit];
 
     dev->speed = sck;
     dev->divisor = spiFrequencyToClockDiv(sck * 1000);
     dev->dirty = 1;
+}
+*/
+
+int spi_set_speed(int unit, unsigned int sck) {
+    struct spi *dev = &spi[unit];
+
+    uint8_t spd = (uint8_t)(80000 / sck);
+    if (1 < (spd)) {
+		uint8_t i, k;
+		i = (spd / 40) ? (spd / 40) : 1;
+
+		k = spd / i;
+		dev->divisor = (((i - 1) & SPI_CLKDIV_PRE) << SPI_CLKDIV_PRE_S) |
+					   (((k - 1) & SPI_CLKCNT_N) << SPI_CLKCNT_N_S) |
+					   ((((k + 1) / 2 - 1) & SPI_CLKCNT_H) << SPI_CLKCNT_H_S) |
+					   (((k - 1) & SPI_CLKCNT_L) << SPI_CLKCNT_L_S); //clear bit 31,set SPI clock div
+    }
+    else dev->divisor = SPI_CLK_EQU_SYSCLK;
+    dev->speed = sck;
+    dev->dirty = 1;
+
+    // return actual speed set
+    return (80000 / spd);
 }
 
 /*
@@ -250,6 +282,7 @@ void spi_select(int unit) {
     	CLEAR_PERI_REG_MASK(SPI_SLAVE_REG(unit), SPI_SLAVE_MODE);
 
         // Set clock
+        CLEAR_PERI_REG_MASK(SPI_CLOCK_REG(unit), SPI_CLK_EQU_SYSCLK);
         WRITE_PERI_REG(SPI_CLOCK_REG(unit), dev->divisor);
 
         // Enable MOSI / MISO / CS
@@ -568,7 +601,9 @@ driver_error_t *spi_lock_resources(int unit, void *resources) {
     driver_unit_lock_error_t *lock_error = NULL;
 
     // Get needed pins
-	spi_pins(unit, &spi_resources->sdi, &spi_resources->sdo, &spi_resources->sck, &spi_resources->cs);
+	if (spi_resources->sck == 0) {
+		spi_pins(unit, &spi_resources->sdi, &spi_resources->sdo, &spi_resources->sck, &spi_resources->cs);
+	}
 
     // Lock this pins
     if ((lock_error = driver_lock(SPI_DRIVER, unit, GPIO_DRIVER, spi_resources->sdi))) {
@@ -605,7 +640,7 @@ driver_error_t *spi_init(int unit) {
 
     // Lock resources
     driver_error_t *error;
-    spi_resources_t resources;
+    spi_resources_t resources = {0};
 
     if ((error = spi_lock_resources(unit, &resources))) {
 		return error;
