@@ -41,7 +41,7 @@
 #include <time.h>
 #include <stdio.h>
 #include <string.h>
-#include <dirent.h>
+#include <sys/dirent.h>
 #include <sys/syslog.h>
 #include <sys/panic.h>
 

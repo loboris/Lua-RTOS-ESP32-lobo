@@ -1,5 +1,5 @@
 /*
- * Lua RTOS, sensor wrapper
+ * Lua RTOS, event wrapper
  *
  * Copyright (C) 2015 - 2016
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
@@ -27,15 +27,18 @@
  * this software.
  */
 
-#ifndef LSENSOR_H
-#define	LSENSOR_H
+#ifndef LEVENT_H
+#define	LEVENT_H
 
-#include <drivers/sensor.h>
+#include <sys/mutex.h>
+#include <sys/list.h>
+
+#define EVENT_QUEUE_SIZE 4
 
 typedef struct {
-	sensor_instance_t *instance;
-	uint8_t adquired;
-} sensor_userdata;
+	struct mtx mtx;
+	struct list listener_list;
+} event_userdata;
 
-#endif	/* LSENSOR_H */
+#endif	/* LEVENT_H */
 

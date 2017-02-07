@@ -32,6 +32,16 @@
 
 #include <sys/driver.h>
 
+/*
+ * The ESP32 has 4 SPI interfaces.
+ * SPI0 is used as a cache controller for accessing the EMIF and SPI1 is used in master mode only.
+ * These two SPI interfaces may be treated as a part of the core system and not be used for general purpose applications.
+ * SPI2 (called the HSPI) and SPI3 (called the VSPI) are the interface ports of preference for interfacing to SPI devices.
+ */
+#define NSPI		4	// number of ESP32 SPI interfaced
+#define NSPI_DEV	4	// number of spi devices on the same interface
+
+
 // Resources used by the SPI
 typedef struct {
 	uint8_t sdi;
@@ -40,13 +50,33 @@ typedef struct {
 	uint8_t cs;
 } spi_resources_t;
 
+typedef struct {
+    unsigned int	speed;			// spi device speed
+    unsigned int	divisor;		// clock divisor
+    unsigned int	mode;			// device spi mode
+    unsigned int	dirty;			// if 1 device must be reconfigured at next spi_select
+    spi_resources_t	res[NSPI_DEV];	// resources (pins) used by spi device on interface
+} spi_interface_t;
 
-#define NSPI 4
+typedef struct {
+    const uint8_t spiclk_out;       //GPIO mux output signals
+    const uint8_t spid_out;
+    const uint8_t spiq_out;
+    const uint8_t spid_in;          //GPIO mux input signals
+    const uint8_t spiq_in;
+    const uint8_t spics_out;        // /CS GPIO output mux signals
+    const uint8_t spiclk_native;    //IO pins of IO_MUX muxed signals
+    const uint8_t spid_native;
+    const uint8_t spiq_native;
+    const uint8_t spics0_native;
+} spi_signal_conn_t;
+
 
 // SPI errors
 #define SPI_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(SPI_DRIVER_ID) |  0)
 #define SPI_ERR_INVALID_MODE             (DRIVER_EXCEPTION_BASE(SPI_DRIVER_ID) |  1)
 #define SPI_ERR_INVALID_UNIT             (DRIVER_EXCEPTION_BASE(SPI_DRIVER_ID) |  2)
+
 
 driver_error_t *spi_init(int unit);
 
@@ -54,14 +84,13 @@ driver_error_t *spi_init(int unit);
  * Setup SPI connection on a given port (0..5) with a specified chip select pin.
  * Use default speed.
  * Return 0 if the SPI port is not configured.
- */
 int spi_setup(int unit);
+ */
 
 /*
  * Set the SPI bit rate for a device (in kHz).
  */
-//void spi_set_speed(int unit, unsigned int sck);
-int spi_set_speed(int unit, unsigned int sck);
+void spi_set_speed(int unit, unsigned int sck);
 
 /*
  * Setup the chip select pin for the SPI device.
@@ -170,5 +199,7 @@ void spi_bulk_rw32_be(int unit, unsigned int nelem, int *data);
 driver_error_t *spi_lock_resources(int unit, void *resources);
 
 void spi_master_op(int unit, unsigned int word_size, unsigned int len, unsigned char *out, unsigned char *in);
+
+void spi_set_dirty(int unit);
 
 #endif

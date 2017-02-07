@@ -56,6 +56,9 @@
 #include <drivers/gpio.h>
 #include <drivers/cpu.h>
 
+static int last_unit = NSPI*NSPI_DEV+1;
+
+/*
 struct spi {
     int          cs;	  // cs pin for device (if 0 use default cs pin)
     unsigned int speed;   // spi device speed
@@ -63,7 +66,7 @@ struct spi {
     unsigned int mode;    // device spi mode
     unsigned int dirty;   // if 1 device must be reconfigured at next spi_select
 };
-
+*/
 /*
 static const driver_message_t spi_errors[] = {
 	{"",""},
@@ -79,22 +82,49 @@ DRIVER_REGISTER_ERROR(SPI, spi, InvalidUnit, "invalid unit", SPI_ERR_INVALID_UNI
 
 #define SPI_DRIVER driver_get_by_name("spi")
 
-struct spi spi[NSPI] = {
-	{
-		0,0,0,0,0
-	},
-	{
-		0,0,0,0,0
-	},
-	{
-		0,0,0,0,0
-	},
-	{
-		0,0,0,0,0
-	}
+spi_interface_t spi[NSPI*NSPI_DEV] = {0};
+
+#define PIN_FUNC_SPI 1
+#define PIN_FUNC_SPI 1
+
+// Native pins of the spi peripherals 1-3
+static const spi_signal_conn_t io_signal[3]={
+    {
+        .spiclk_out=SPICLK_OUT_IDX,
+        .spid_out=SPID_OUT_IDX,
+        .spiq_out=SPIQ_OUT_IDX,
+        .spid_in=SPID_IN_IDX,
+        .spiq_in=SPIQ_IN_IDX,
+        .spics_out=SPICS0_OUT_IDX,
+        .spiclk_native=6,
+        .spid_native=8,
+        .spiq_native=7,
+        .spics0_native=11,
+    }, {
+        .spiclk_out=HSPICLK_OUT_IDX,
+        .spid_out=HSPID_OUT_IDX,
+        .spiq_out=HSPIQ_OUT_IDX,
+        .spid_in=HSPID_IN_IDX,
+        .spiq_in=HSPIQ_IN_IDX,
+        .spics_out=HSPICS0_OUT_IDX,
+        .spiclk_native=14,
+        .spid_native=13,
+        .spiq_native=12,
+        .spics0_native=15,
+    }, {
+        .spiclk_out=VSPICLK_OUT_IDX,
+        .spid_out=VSPID_OUT_IDX,
+        .spiq_out=VSPIQ_OUT_IDX,
+        .spid_in=VSPID_IN_IDX,
+        .spiq_in=VSPIQ_IN_IDX,
+        .spics_out=VSPICS0_OUT_IDX,
+        .spiclk_native=18,
+        .spid_native=23,
+        .spiq_native=19,
+        .spics0_native=5,
+    }
 };
 
-#define FUNC_SPI 1
 
 /*
  * Extracted from arduino-esp32 (cores/esp32/esp32-hal-spi.c) for get the clock divisor
@@ -116,7 +146,85 @@ typedef union {
 } spiClk_t;
 
 /*
-uint32_t spiFrequencyToClockDiv(uint32_t freq) {
+typedef union {
+	struct {
+		uint32_t clkcnt_l:       6;  // n the master mode it must be equal to spi_clkcnt_N. In the slave mode it must be 0.
+		uint32_t clkcnt_h:       6;  // In the master mode it must be floor((spi_clkcnt_N+1)/2-1). In the slave mode it must be 0.
+		uint32_t clkcnt_n:       6;  // In the master mode it is the divider of spi_clk. So spi_clk frequency is system/(spi_clkdiv_pre+1)/(spi_clkcnt_N+1)
+		uint32_t clkdiv_pre:    13;  // In the master mode it is pre-divider of spi_clk.
+		uint32_t clk_equ_sysclk: 1;  // In the master mode 1: spi_clk is eqaul to system 0: spi_clk is divided from system clock.
+	};
+	uint32_t val;
+} spi_clk_t;
+
+static uint32_t spi_set_clock(int hz) {
+    int pre, n, h, l;
+    spi_clk_t clock;
+
+    //Assumes a hardcoded 80MHz Fapb for now. ToDo: figure out something better once we have
+    //clock scaling working.
+    int fapb = APB_CLK_FREQ;
+    int duty_cycle = 128;
+
+    //In hw, n, h and l are 1-64, pre is 1-8K. Value written to register is one lower than used value.
+    if (hz>((fapb/4)*3)) {
+        //Using Fapb directly will give us the best result here.
+        clock.clkcnt_l=0;
+        clock.clkcnt_h=0;
+        clock.clkcnt_n=0;
+        clock.clkdiv_pre=0;
+        clock.clk_equ_sysclk=1;
+    } else {
+        //For best duty cycle resolution, we want n to be as close to 32 as possible, but
+        //we also need a pre/n combo that gets us as close as possible to the intended freq.
+        //To do this, we bruteforce n and calculate the best pre to go along with that.
+        //If there's a choice between pre/n combos that give the same result, use the one
+        //with the higher n.
+        int bestn=-1;
+        int bestpre=-1;
+        int besterr=0;
+        int errval;
+        for (n=1; n<=64; n++) {
+            //Effectively, this does pre=round((fapb/n)/hz).
+            pre = ((fapb/n)+(hz/2))/hz;
+            if (pre<=0) pre = 1;
+            if (pre>8192) pre = 8192;
+            errval = abs((fapb / (pre * n)) - hz);
+            if (bestn==-1 || errval<=besterr) {
+                besterr=errval;
+                bestn=n;
+                bestpre=pre;
+            }
+        }
+
+        n=bestn;
+        pre=bestpre;
+        l=n;
+        //This effectively does round((duty_cycle*n)/256)
+        h=(duty_cycle*n+127)/256;
+        if (h<=0) h=1;
+
+        clock.clk_equ_sysclk=0;
+        clock.clkcnt_n=n-1;
+        clock.clkdiv_pre=pre-1;
+        clock.clkcnt_h=h-1;
+        clock.clkcnt_l=l-1;
+    }
+    uint32_t divs = (clock.clkdiv_pre + 1) * (clock.clkcnt_n + 1);
+    if (!clock.clk_equ_sysclk) {
+		clock.val = (((clock.clkdiv_pre & SPI_CLKDIV_PRE) << SPI_CLKDIV_PRE_S) |
+					   ((clock.clkcnt_n & SPI_CLKCNT_N) << SPI_CLKCNT_N_S) |
+					   ((clock.clkcnt_h & SPI_CLKCNT_H) << SPI_CLKCNT_H_S) |
+					   (clock.clkcnt_l << SPI_CLKCNT_L_S)) << 5;
+    }
+	else clock.val = SPI_CLK_EQU_SYSCLK;
+    printf("CLOCK: [%d, %d, %d, %d, %d] divs=%d, divisor=%d, speed=%d\r\n",
+            clock.clk_equ_sysclk, clock.clkcnt_n, clock.clkdiv_pre, clock.clkcnt_h, clock.clkcnt_l, divs, clock.val, APB_CLK_FREQ / divs / 1000);
+    return clock.val;
+}
+*/
+
+static uint32_t spiFrequencyToClockDiv(uint32_t freq) {
 
     if(freq >= CPU_CLK_FREQ) {
         return SPI_CLK_EQU_SYSCLK;
@@ -166,9 +274,10 @@ uint32_t spiFrequencyToClockDiv(uint32_t freq) {
         }
         calN++;
     }
+    //printf("DIVISOR=%d\r\n",bestReg.regValue);
     return bestReg.regValue;
 }
-*/
+
 
 /*
  * End of extracted code from arduino-esp32
@@ -179,7 +288,7 @@ uint32_t spiFrequencyToClockDiv(uint32_t freq) {
  *
  */
 void spi_set_mode(int unit, int mode) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
 
     dev->mode = mode;
     dev->dirty = 1;
@@ -189,36 +298,14 @@ void spi_set_mode(int unit, int mode) {
  * Set the SPI bit rate for a device and stores the clock divisor needed
  * for this bit rate. Nothing is changed at hardware level.
  */
-/*
+
 void spi_set_speed(int unit, unsigned int sck) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
 
-    dev->speed = sck;
+	dev->speed = sck;
     dev->divisor = spiFrequencyToClockDiv(sck * 1000);
+    //dev->divisor = spi_set_clock(sck * 1000);
     dev->dirty = 1;
-}
-*/
-
-int spi_set_speed(int unit, unsigned int sck) {
-    struct spi *dev = &spi[unit];
-
-    uint8_t spd = (uint8_t)(80000 / sck);
-    if (1 < (spd)) {
-		uint8_t i, k;
-		i = (spd / 40) ? (spd / 40) : 1;
-
-		k = spd / i;
-		dev->divisor = (((i - 1) & SPI_CLKDIV_PRE) << SPI_CLKDIV_PRE_S) |
-					   (((k - 1) & SPI_CLKCNT_N) << SPI_CLKCNT_N_S) |
-					   ((((k + 1) / 2 - 1) & SPI_CLKCNT_H) << SPI_CLKCNT_H_S) |
-					   (((k - 1) & SPI_CLKCNT_L) << SPI_CLKCNT_L_S); //clear bit 31,set SPI clock div
-    }
-    else dev->divisor = SPI_CLK_EQU_SYSCLK;
-    dev->speed = sck;
-    dev->dirty = 1;
-
-    // return actual speed set
-    return (80000 / spd);
 }
 
 /*
@@ -226,14 +313,75 @@ int spi_set_speed(int unit, unsigned int sck) {
  * to the required settings.
  */
 void spi_select(int unit) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
+	/*
+	int lunit = last_unit;
+	spi_interface_t *ldev = NULL;
+	if (lunit < (NSPI*NSPI_DEV)) {
+		ldev = &spi[lunit];
+		lunit &= (NSPI-1);
+	}
+	*/
+	if (last_unit != unit) {
+		// spi interface changed
+		dev->dirty = 1;
+		last_unit = unit;
+	}
+	unit &= (NSPI-1);
 
     if (dev->dirty) {
-        // Complete operations, if pending
+        int pin_func = PIN_FUNC_SPI; // Native spi pins
+    	/*
+    	// === SPI (re)initialization is necessary ===
+        if ((ldev) && (unit > 0)) {
+			//Check if the last unit pins correspond to the native pins of the peripheral
+			if (ldev->res->sdo != io_signal[lunit-1].spid_native)   pin_func = PIN_FUNC_GPIO;
+			if (ldev->res->sdi != io_signal[lunit-1].spiq_native)   pin_func = PIN_FUNC_GPIO;
+			if (ldev->res->sck != io_signal[lunit-1].spiclk_native) pin_func = PIN_FUNC_GPIO;
+			if (ldev->res->cs  != io_signal[lunit-1].spics0_native) pin_func = PIN_FUNC_GPIO;
+			if (pin_func == PIN_FUNC_GPIO) {
+				// Cancel gpio matrix assignment
+	        	gpio_matrix_in(ldev->res->sdi,  0x100, 0);
+				gpio_matrix_out(ldev->res->sdo, 0x100, 0, 0);
+				gpio_matrix_out(ldev->res->sck, 0x100, 0, 0);
+				gpio_matrix_out(ldev->res->cs,  0x100, 0, 0);
+			}
+        }
+		*/
+        pin_func = PIN_FUNC_SPI; // Native spi pins
+		if (unit > 0) {
+			//Check if the selected pins correspond to the native pins of the peripheral
+			if (dev->res->sdo != io_signal[unit-1].spid_native)   pin_func = PIN_FUNC_GPIO;
+			if (dev->res->sdi != io_signal[unit-1].spiq_native)   pin_func = PIN_FUNC_GPIO;
+			if (dev->res->sck != io_signal[unit-1].spiclk_native) pin_func = PIN_FUNC_GPIO;
+			if (dev->res->cs  != io_signal[unit-1].spics0_native) pin_func = PIN_FUNC_GPIO;
+        }
+        else pin_func = PIN_FUNC_GPIO; // Use GPIO for spi pins
+
+    	// Complete operations, if pending
         CLEAR_PERI_REG_MASK(SPI_SLAVE_REG(unit), SPI_TRANS_DONE << 5);
         SET_PERI_REG_MASK(SPI_USER_REG(unit), SPI_CS_SETUP);
 
-        // Set mode
+        // Configure pins
+    	PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sdi], pin_func);
+        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sdo], pin_func);
+        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sck], pin_func);
+        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->cs],  pin_func);
+
+        if (pin_func == PIN_FUNC_GPIO) {
+        	gpio_set_direction(dev->res->sdo, GPIO_MODE_OUTPUT);
+        	gpio_set_direction(dev->res->sck, GPIO_MODE_OUTPUT);
+        	gpio_set_direction(dev->res->cs, GPIO_MODE_OUTPUT);
+        	gpio_set_direction(dev->res->sdi, GPIO_MODE_INPUT);
+        	gpio_set_pull_mode(dev->res->sdi, GPIO_PULLUP_ONLY);
+
+        	gpio_matrix_in(dev->res->sdi,  io_signal[unit-1].spiq_in,    0);
+			gpio_matrix_out(dev->res->sdo, io_signal[unit-1].spid_out,   0, 0);
+			gpio_matrix_out(dev->res->sck, io_signal[unit-1].spiclk_out, 0, 0);
+			gpio_matrix_out(dev->res->cs,  io_signal[unit-1].spics_out,  0, 0);
+        }
+
+    	// Set mode
     	switch (dev->mode) {
     		case 0:
     		    // Set CKP to 0
@@ -298,8 +446,8 @@ void spi_select(int unit) {
     }
 
 	// Select device
-    if (dev->cs) {
-       gpio_pin_clr(dev->cs);
+    if (dev->res->cs) {
+       gpio_pin_clr(dev->res->cs);
     }
 }
 
@@ -307,10 +455,9 @@ void spi_select(int unit) {
  * Deselect the device
  */
 void spi_deselect(int unit) {
-    struct spi *dev = &spi[unit];
-
-    if (dev->cs) {
-        gpio_pin_set(dev->cs);
+	spi_interface_t *dev = &spi[unit];
+    if (dev->res->cs) {
+        gpio_pin_set(dev->res->cs);
     }
 }
 
@@ -320,20 +467,21 @@ void spi_deselect(int unit) {
  * (device is not select)
  */
 void spi_set_cspin(int unit, int pin) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
 
-    if (pin != dev->cs) {
-        dev->cs = pin;
+    if (pin != dev->res->cs) {
+    	dev->res->cs = pin;
 
         if (pin) {
-            gpio_pin_output(dev->cs);
-            gpio_pin_set(dev->cs);
+            gpio_pin_output(dev->res->cs);
+            gpio_pin_set(dev->res->cs);
 
             dev->dirty = 1;
         }
     }
 }
 
+// Get default SPI pins
 void spi_pins(int unit, unsigned char *sdi, unsigned char *sdo, unsigned char *sck, unsigned char* cs) {
     switch (unit) {
     	case 1:
@@ -363,19 +511,25 @@ void spi_pins(int unit, unsigned char *sdi, unsigned char *sdo, unsigned char *s
  * Init pins for a device, and return used pins
  */
 void spi_pin_config(int unit, unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs) {
-    // Configure pins
-	PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[sdi], FUNC_SPI);
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[sdo], FUNC_SPI);
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[sck], FUNC_SPI);
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[cs ], FUNC_SPI);
+	spi_interface_t *dev = &spi[unit];
 
     // Set the cs pin to the default cs pin for device
 	spi_set_cspin(unit, cs);
+
+	// Configure pins
+	dev->res->sdi = sdi;
+	dev->res->sdo = sdo;
+	dev->res->sck = sck;
+	dev->res->cs = cs;
+	dev->dirty = 1;
 }
 
 void IRAM_ATTR spi_master_op(int unit, unsigned int word_size, unsigned int len, unsigned char *out, unsigned char *in) {
+	spi_interface_t *dev = &spi[unit];
 	unsigned int bytes = word_size * len; // Number of bytes to write / read
 	unsigned int idx = 0;
+
+	unit &= 3;
 
 	/*
 	 * SPI data buffers hardware registers are 32-bit size, so we use a
@@ -575,33 +729,29 @@ const char *spi_name(int unit) {
  * Return the pin index of the chip select pin for a device.
  */
 int spi_cs_gpio(int unit) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
 
-    return dev->cs;
+    return dev->res->cs;
 }
 
 /*
  * Return the speed in kHz.
  */
 unsigned int spi_get_speed(int unit) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
 
     return dev->speed;
 }
 
 // Lock resources needed by the SPI
 driver_error_t *spi_lock_resources(int unit, void *resources) {
-	spi_resources_t tmp_spi_resources;
+	spi_interface_t *dev = &spi[unit];
+	spi_resources_t *spi_resources = dev->res;
 
-	if (!resources) {
-		resources = &tmp_spi_resources;
-	}
-
-	spi_resources_t *spi_resources = (spi_resources_t *)resources;
     driver_unit_lock_error_t *lock_error = NULL;
 
-    // Get needed pins
 	if (spi_resources->sck == 0) {
+	    // Get default pins
 		spi_pins(unit, &spi_resources->sdi, &spi_resources->sdo, &spi_resources->sck, &spi_resources->cs);
 	}
 
@@ -631,38 +781,45 @@ driver_error_t *spi_lock_resources(int unit, void *resources) {
 
 // Init a spi device
 driver_error_t *spi_init(int unit) {
-    struct spi *dev = &spi[unit];
+	spi_interface_t *dev = &spi[unit];
 
 	// Sanity checks
 	if ((unit > CPU_LAST_SPI) || (unit < CPU_FIRST_SPI)) {
 		return driver_setup_error(SPI_DRIVER, SPI_ERR_CANT_INIT, "invalid unit");
 	}
 
+    // Configure default pins if necessary
+    if (dev->res->sck == 0) {
+    	spi_pin_config(unit, dev->res->sdi, dev->res->sdo, dev->res->sck, dev->res->cs);
+    }
+
     // Lock resources
     driver_error_t *error;
-    spi_resources_t resources = {0};
-
-    if ((error = spi_lock_resources(unit, &resources))) {
+    if ((error = spi_lock_resources(unit, NULL))) {
 		return error;
 	}
 
-	// There are not errors, continue with init ...
-
-    // Cotinue with init
-	spi_pin_config(unit, resources.sdi, resources.sdo, resources.sck, resources.cs);
-
+    /*
 	syslog(LOG_INFO,
-        "spi%u at pins sdi=%s%d/sdo=%s%d/sck=%s%d", unit,
-        gpio_portname(resources.sdi), gpio_name(resources.sdi),
-        gpio_portname(resources.sdo), gpio_name(resources.sdo),
-        gpio_portname(resources.sck), gpio_name(resources.sck)
+        "SPI_INIT: spi%u at pins sdi=%s%d/sdo=%s%d/sck=%s%d/cs=%s%d\r\n", unit,
+        gpio_portname(dev->res->sdi), gpio_name(dev->res->sdi),
+        gpio_portname(dev->res->sdo), gpio_name(dev->res->sdo),
+        gpio_portname(dev->res->sck), gpio_name(dev->res->sck),
+        gpio_portname(dev->res->cs), gpio_name(dev->res->cs)
     );
-
+	*/
     spi_set_mode(unit, 0);
 
     dev->dirty = 1;
     
     return NULL;
 }
+
+void spi_set_dirty(int unit) {
+	spi_interface_t *dev = &spi[unit];
+
+    dev->dirty = 1;
+}
+
 
 DRIVER_REGISTER(SPI,spi,NULL,NULL,spi_lock_resources);

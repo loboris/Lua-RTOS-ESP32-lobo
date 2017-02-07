@@ -1,13 +1,16 @@
-/*
+/* Lua-RTOS-ESP32 TFT module
+ * SPI access functions
+ * Author: LoBo (loboris@gmail.com, loboris.github)
  *
- */
+ * Module supporting SPI TFT displays based on ILI9341 & ST7735 controllers
+*/
+
 
 #include "freertos/FreeRTOS.h"
 #include "screen/tftspi.h"
 #include "freertos/task.h"
 #include "stdio.h"
 #include <sys/driver.h>
-#include "sys/syslog.h"
 #include <drivers/gpio.h>
 
 #if LUA_USE_TFT
@@ -19,28 +22,31 @@ uint16_t _height = 240;
 static int colstart = 0;
 static int rowstart = 0;	// May be overridden in init func
 
-static tft_spi_config_t tft_spi_config = {0};
-static tft_spi_config_t touch_spi_config = {0};
+static int disp_dc = PIN_NUM_DC;
 
 //==============================================================================
 
 #define DELAY 0x80
 #define SWAPBYTES(i) ((i>>8) | (i<<8))
-#define SpiNum_SPI2 2
-
+#define DC_CMD ( gpio_set_level(disp_dc, 0) )
+#define DC_DATA ( gpio_set_level(disp_dc, 1) )
 
 // ======== Low level TFT SPI functions ========================================
+
 
 //Send a command to the TFT.
 //-----------------------------
 void tft_cmd(const uint8_t cmd)
 {
 	unsigned char command = cmd;
-
     taskDISABLE_INTERRUPTS();
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &command, NULL);
-    taskENABLE_INTERRUPTS();
+	spi_select(DISP_SPI);
+
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &command, NULL);
+	spi_deselect(DISP_SPI);
+
+	taskENABLE_INTERRUPTS();
 }
 
 //Send data to the TFT.
@@ -49,87 +55,101 @@ void tft_data(const uint8_t *data, int len)
 {
     if (len==0) return;             //no need to send anything
 
-    taskDISABLE_INTERRUPTS();
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, len, (unsigned char *)data, NULL);
-    taskENABLE_INTERRUPTS();
+	taskDISABLE_INTERRUPTS();
+	spi_select(DISP_SPI);
+
+	DC_DATA;
+    spi_master_op(DISP_SPI, 1, len, (unsigned char *)data, NULL);
+	spi_deselect(DISP_SPI);
+
+	taskENABLE_INTERRUPTS();
 }
 
 // Draw pixel on TFT on x,y position using given color
 //---------------------------------------------------
 void drawPixel(int16_t x, int16_t y, uint16_t color)
 {
-	if((x < 0) ||(x >= _width) || (y < 0) || (y >= _height)) return;
-
 	// ** Send address window **
 	uint8_t cmd = TFT_CASET;
 	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
 
     taskDISABLE_INTERRUPTS();
 
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+	spi_select(DISP_SPI);
 
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
 	cmd = TFT_PASET;
 	data = (y >> 8) | ((y & 0xFF) << 8) | (((y+1) >> 8) << 16) | (((y+1) & 0xFF) << 24);
-	gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+	DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
     // ** Send pixel color **
 	cmd = TFT_RAMWR;
     uint16_t clr = SWAPBYTES(color);
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
-    gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 2, 1, (unsigned char *)(&clr), NULL);
+    DC_DATA;
+    spi_master_op(DISP_SPI, 2, 1, (unsigned char *)(&clr), NULL);
 
-    taskENABLE_INTERRUPTS();
+	spi_deselect(DISP_SPI);
+
+	taskENABLE_INTERRUPTS();
 }
+
+#include <sys/delay.h>
 
 // Reads one pixel/color from the TFT's GRAM
 //--------------------------------------
 uint16_t readPixel(int16_t x, int16_t y)
 {
-	unsigned char color[2], dummywr[2] = {0};
+	unsigned char color[4] = {0xFF}, dummywr[4] = {0};
 
-    // ** Send address window **
+	// ** Send address window **
 	uint8_t cmd = TFT_CASET;
 	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
 
-    taskDISABLE_INTERRUPTS();
+	taskDISABLE_INTERRUPTS();
 
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+	spi_select(DISP_SPI);
 
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
 	cmd = TFT_PASET;
 	data = (y >> 8) | ((y & 0xFF) << 8) | (((y+1) >> 8) << 16) | (((y+1) & 0xFF) << 24);
-	gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+	DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
     // ** GET pixel color **
 	cmd = TFT_RAMRD;
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
-    gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 2, dummywr, color);
+    DC_DATA;
+    udelay(50);
+    spi_master_op(DISP_SPI, 1, 4, dummywr, color);
+
+	spi_deselect(DISP_SPI);
 
     taskENABLE_INTERRUPTS();
 
-    return (uint16_t)((color[0] << 8) | color[1]);
+	printf("READ DATA: %02x, %02x, %02x, %02x\r\n", color[0],color[1],color[2],color[3]);
+    return (uint16_t)((uint16_t)((color[1] & 0xF8) << 8) | (uint16_t)((color[2] & 0xFC) << 3) | (uint16_t)(color[3] >> 3));
 }
 
 // Write 'len' 16-bit color data to TFT 'window' (x1,y2),(x2,y2)
@@ -150,50 +170,58 @@ void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t color, uint32_t l
     buf = malloc(buflen*2);
     if (!buf) return;
 
+	vTaskSuspendAll ();
+
     // fill buffer with pixel color data
 	for (i=0;i<(buflen*2);i+=2) {
 		buf[i] = (uint8_t)(color >> 8);
 		buf[i+1] = (uint8_t)(color & 0x00FF);
 	}
 
-	// ** Send address window **
-    taskDISABLE_INTERRUPTS();
+	taskDISABLE_INTERRUPTS();
 
+	spi_select(DISP_SPI);
+
+	// ** Send address window **
 	cmd = TFT_CASET;
 	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
 	cmd = TFT_PASET;
 	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
-	gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+	DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
     // ** Send repeated color **
 	cmd = TFT_RAMWR;
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
     taskENABLE_INTERRUPTS();
 
-    gpio_pin_set(tft_spi_config.dc);
+    DC_DATA;
 	tosend = len;
     while (tosend > 0) {
         if (tosend > buflen) sendlen = buflen;
     	else sendlen = tosend;
 
         taskDISABLE_INTERRUPTS();
-        spi_master_op(tft_spi_config.spi, 1, sendlen*2, buf, NULL);
+        spi_master_op(DISP_SPI, 1, sendlen*2, buf, NULL);
         taskENABLE_INTERRUPTS();
 
 		tosend -= sendlen;
     }
 
+	spi_deselect(DISP_SPI);
+
     free(buf);
+
+    xTaskResumeAll ();
 }
 
 // Write 'len' 16-bit color data to TFT 'window' (x1,y2),(x2,y2) from given buffer
@@ -203,32 +231,36 @@ void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
 	uint8_t cmd;
 	uint32_t data;
 
-	// ** Send address window **
-    taskDISABLE_INTERRUPTS();
+	taskDISABLE_INTERRUPTS();
 
+	spi_select(DISP_SPI);
+
+	// ** Send address window **
 	cmd = TFT_CASET;
 	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
 	cmd = TFT_PASET;
 	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
-	gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+	DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
     // ** Send color data prepared in 'buf'  **
 	cmd = TFT_RAMWR;
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
-    gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, len*2, buf, NULL);
+    DC_DATA;
+    spi_master_op(DISP_SPI, 1, len*2, buf, NULL);
 
-    taskENABLE_INTERRUPTS();
+	spi_deselect(DISP_SPI);
+
+	taskENABLE_INTERRUPTS();
 }
 
 // Reads pixels/colors from the TFT's GRAM
@@ -240,32 +272,48 @@ void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
 
 	memset(buf, 0, len*2);
 
-	// ** Send address window **
-    taskDISABLE_INTERRUPTS();
+	unsigned char *rbuf = malloc((len*3)+1);
+    if (!rbuf) return;
+    memset(rbuf, 0, (len*3)+1);
 
+	taskDISABLE_INTERRUPTS();
+
+	spi_select(DISP_SPI);
+
+    // ** Send address window **
 	cmd = TFT_CASET;
 	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
 	cmd = TFT_PASET;
 	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
-	gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
-	gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 4, 1, (unsigned char *)(&data), NULL);
+	DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	DC_DATA;
+    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
 
     // ** GET pixels/colors **
 	cmd = TFT_RAMRD;
-    gpio_pin_clr(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 1, &cmd, NULL);
+    DC_CMD;
+    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
-    gpio_pin_set(tft_spi_config.dc);
-    spi_master_op(tft_spi_config.spi, 1, 2, buf, buf);
+    DC_DATA;
+    spi_master_op(DISP_SPI, 1, (len*3)+1, rbuf, rbuf);
+
+	spi_deselect(DISP_SPI);
 
     taskENABLE_INTERRUPTS();
+
+    int idx = 0;
+    uint16_t color;
+    for (int i=1; i<(len*3); i+=3) {
+    	color = (uint16_t)((uint16_t)((rbuf[1] & 0xF8) << 8) | (uint16_t)((rbuf[2] & 0xFC) << 3) | (uint16_t)(rbuf[3] >> 3));
+    	buf[idx++] = color >> 8;
+    	buf[idx++] = color & 0xFF;
+    }
 }
 
 //-----------------------------------
@@ -274,9 +322,14 @@ uint16_t touch_get_data(uint8_t type)
 	uint8_t txbuf[4] = {0};
 	uint8_t rxbuf[4] = {0};
 
+	taskDISABLE_INTERRUPTS();
+	spi_select(TOUCH_SPI);
+
 	txbuf[0]=type;
-    taskDISABLE_INTERRUPTS();
-    spi_master_op(touch_spi_config.spi, 1, 4, txbuf, rxbuf);
+    spi_master_op(TOUCH_SPI, 1, 4, txbuf, rxbuf);
+
+	spi_deselect(TOUCH_SPI);
+
     taskENABLE_INTERRUPTS();
 
     return (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
@@ -604,110 +657,40 @@ static void ST7735_initR(uint8_t options) {
   //  tabcolor = options;
 }
 
-//-------------------------------
-static void disp_spi_defaults() {
-	tft_spi_config.spi = SpiNum_SPI2;
-	tft_spi_config.bits = 8;
-	tft_spi_config.dc = PIN_NUM_DC;
-	tft_spi_config.speed = 20000;
-	tft_spi_config.mode = 0;
-	tft_spi_config.resources.sdi = PIN_NUM_MISO;
-	tft_spi_config.resources.sdo = PIN_NUM_MOSI;
-	tft_spi_config.resources.sck = PIN_NUM_CLK;
-	tft_spi_config.resources.cs = PIN_NUM_CS;
-	printf("Display default config: sdi=%d/sdo=%d/sck=%d/cs=%d/dc=%d\r\n",
-			tft_spi_config.resources.sdi, tft_spi_config.resources.sdo,
-			tft_spi_config.resources.sck, tft_spi_config.resources.cs, tft_spi_config.dc);
-}
-
-//--------------------------------
-static void touch_spi_defaults() {
-	touch_spi_config.spi = SpiNum_SPI2;
-	touch_spi_config.bits = 8;
-	touch_spi_config.dc = 0;
-	touch_spi_config.speed = 2500;
-	touch_spi_config.mode = 2;
-	touch_spi_config.resources.sdi = PIN_NUM_MISO;
-	touch_spi_config.resources.sdo = PIN_NUM_MOSI;
-	touch_spi_config.resources.sck = PIN_NUM_CLK;
-	touch_spi_config.resources.cs = PIN_NUM_TCS;
-	printf("Touch default config: sdi=%d/sdo=%d/sck=%d/cs=%d\r\n\r\n",
-			touch_spi_config.resources.sdi, touch_spi_config.resources.sdo,
-			touch_spi_config.resources.sck, touch_spi_config.resources.cs);
-}
-
-//-------------------------------------------------------------
-static driver_error_t *tft_init_spi(tft_spi_config_t *config) {
-	driver_error_t *error;
-
-	// Pin initialization
-	gpio_set_direction(config->resources.sdo, GPIO_MODE_OUTPUT);
-	gpio_set_direction(config->resources.sck, GPIO_MODE_OUTPUT);
-	gpio_set_direction(config->resources.cs, GPIO_MODE_OUTPUT);
-	gpio_set_direction(config->resources.sdi, GPIO_MODE_INPUT);
-	gpio_set_pull_mode(config->resources.sdi, GPIO_PULLUP_ONLY);
-    if (config->dc) gpio_set_direction(config->dc, GPIO_MODE_OUTPUT);
-
-    if ((GPIO_PIN_MUX_REG[config->resources.sdi] == 0) ||
-    	(GPIO_PIN_MUX_REG[config->resources.sdo] == 0) ||
-		(GPIO_PIN_MUX_REG[config->resources.sck] == 0) ||
-		(GPIO_PIN_MUX_REG[config->resources.cs] == 0)) {
-    	return driver_setup_error(SPI_DRIVER, SPI_ERR_CANT_INIT, "cannot mux pin");
-    }
-
-	PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[config->resources.sdi], config->spi);
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[config->resources.sdo], config->spi);
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[config->resources.sck], config->spi);
-    PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[config->resources.cs],  config->spi);
-
-    gpio_matrix_in(config->resources.sdi, HSPIQ_IN_IDX,0);
-	gpio_matrix_out(config->resources.sdo, HSPID_OUT_IDX,0,0);
-	gpio_matrix_out(config->resources.sck, HSPICLK_OUT_IDX,0,0);
-	gpio_matrix_out(config->resources.cs, HSPICS0_OUT_IDX,0,0);
-
-	// Lock resources
-	if ((error = spi_lock_resources(config->spi, &config->resources))) {
-		return error;
-	}
-
-	// There are no errors, continue with SPI initialization
-	spi_set_mode(config->spi, config->mode);
-	config->speed = spi_set_speed(config->spi, config->speed);
-	spi_set_cspin(config->spi, config->resources.cs);
-	spi_select(config->spi);
-	gpio_pin_set(config->resources.cs);
-
-	return NULL;
-}
-
 //-----------------------
 void tft_set_defaults() {
-	disp_spi_defaults();
-	touch_spi_defaults();
+    spi_pin_config(DISP_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
+    spi_init(DISP_SPI);
+    gpio_pin_output(disp_dc);
+    spi_set_mode(DISP_SPI, 0);
+    spi_set_speed(DISP_SPI, 20000);
+
+    spi_pin_config(TOUCH_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_TCS);
+    spi_init(TOUCH_SPI);
+    spi_set_mode(TOUCH_SPI, 2);
+    spi_set_speed(TOUCH_SPI, 2500);
 }
 
-//---------------------------------
-driver_error_t *tft_select_disp() {
-	return tft_init_spi(&tft_spi_config);
-}
+//-----------------------------------------------------------------------------------------------------------------------------------
+void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc, unsigned char tcs) {
+    spi_pin_config(DISP_SPI, sdi, sdo, sck, cs);
+    disp_dc = dc;
+    gpio_pin_output(disp_dc);
+    spi_init(DISP_SPI);
+    spi_set_mode(DISP_SPI, 0);
+    spi_set_speed(DISP_SPI, 20000);
 
-//----------------------------------
-driver_error_t *tft_select_touch() {
-	return tft_init_spi(&touch_spi_config);
-}
-
-//-----------------------------------------------
-tft_spi_config_t *tft_get_config(uint8_t which) {
-	if (which) return &touch_spi_config;
-	else return &tft_spi_config;
+    spi_pin_config(TOUCH_SPI, sdi, sdo, sck, tcs);
+    spi_init(TOUCH_SPI);
+    spi_set_mode(TOUCH_SPI, 2);
+    spi_set_speed(TOUCH_SPI, 2500);
 }
 
 // Init tft SPI interface
 //-----------------------------------------
 driver_error_t *tft_spi_init(uint8_t typ) {
 
-	driver_error_t *error = tft_init_spi(&tft_spi_config);
-	if (error) return error;
+	spi_select(DISP_SPI);
 
     int cmd=0;
 
@@ -768,6 +751,7 @@ driver_error_t *tft_spi_init(uint8_t typ) {
     gpio_set_level(PIN_NUM_BCKL, 0);
 	#endif
 
+	spi_deselect(DISP_SPI);
     return NULL;
 }
 

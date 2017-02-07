@@ -1,12 +1,9 @@
 /* Lua-RTOS-ESP32 TFT module
-
-   This example code is in the Public Domain (or CC0 licensed, at your option.)
-
-   Unless required by applicable law or agreed to in writing, this
-   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
-   CONDITIONS OF ANY KIND, either express or implied.
+ *
+ *  Author: LoBo (loboris@gmail.com, loboris.github)
+ *
+ *  Module supporting SPI TFT displays based on ILI9341 & ST7735 controllers
 */
-
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -1038,24 +1035,24 @@ static int load_file_font(const char * fontfile, int info)
     // Open the file
     FILE *fhndl = fopen(fontfile, "r");
     if (!fhndl) {
-		printf("Error opening font file '%s'\r\n", fontfile);
+    	syslog(LOG_ERR, "Error opening font file '%s'", fontfile);
 		return 0;
     }
 
 	// Get file size
     if (stat(fontfile, &sb) != 0) {
-		printf("Error getting font file size\r\n");
+    	syslog(LOG_ERR, "Error getting font file size");
 		return 0;
     }
 	int fsize = sb.st_size;
 	if (fsize < 30) {
-		printf("Error getting font file size\r\n");
+		syslog(LOG_ERR, "Error getting font file size");
 		return 0;
 	}
 
 	userfont = malloc(fsize+4);
 	if (userfont == NULL) {
-		printf("Font memory allocation error\r\n");
+		syslog(LOG_ERR, "Font memory allocation error");
 		fclose(fhndl);
 		return 0;
 	}
@@ -1065,7 +1062,7 @@ static int load_file_font(const char * fontfile, int info)
 	fclose(fhndl);
 
 	if (read != fsize) {
-		printf("Font read error\r\n");
+		syslog(LOG_ERR, "Font read error");
 		free(userfont);
 		userfont = NULL;
 		return 0;
@@ -1073,7 +1070,7 @@ static int load_file_font(const char * fontfile, int info)
 
 	userfont[read] = 0;
 	if (strstr((char *)(userfont+read-8), "RPH_font") == NULL) {
-		printf("Font ID not found\r\n");
+		syslog(LOG_ERR, "Font ID not found");
 		free(userfont);
 		userfont = NULL;
 		return 0;
@@ -1124,7 +1121,7 @@ static int load_file_font(const char * fontfile, int info)
 	}
 
 	if (size != (read-8)) {
-		printf("Font size error: found %d expected %d\r\n)", size, (read-8));
+		syslog(LOG_ERR, "Font size error: found %d expected %d)", size, (read-8));
 		free(userfont);
 		userfont = NULL;
 		return 0;
@@ -1132,12 +1129,12 @@ static int load_file_font(const char * fontfile, int info)
 
 	if (info) {
 		if (width != 0) {
-			printf("Fixed width font:\n");
-			printf("size: %d  width: %d  height: %d  characters: %d (%d~%d)\n", size, width, height, numchar, first, last);
+			syslog(LOG_INFO, "Fixed width font:\r\n  size: %d  width: %d  height: %d  characters: %d (%d~%d)",
+					size, width, height, numchar, first, last);
 		}
 		else {
-			printf("Proportional font:\n");
-			printf("size: %d  width: %d~%d  height: %d  characters: %d (%d~%d)\n", size, pminwidth, pmaxwidth, height, numchar, first, last);
+			syslog(LOG_INFO, "Proportional font:\r\n  size: %d  width: %d~%d  height: %d  characters: %d (%d~%d)\n",
+					size, pminwidth, pmaxwidth, height, numchar, first, last);
 		}
 	}
 	return 1;
@@ -1815,7 +1812,7 @@ static void TFT_invertDisplay(const uint8_t mode) {
 //--------------------------------------------------
 static uint8_t checkParam(uint8_t n, lua_State* L) {
   if (lua_gettop(L) < n) {
-    printf("not enough parameters\r\n" );
+	syslog(LOG_ERR, "not enough parameters" );
     return 1;
   }
   return 0;
@@ -2017,11 +2014,10 @@ static UINT tjd_output (
 	    }
 	    if (right > _width) right = _width-1;
 	    if (bottom > _height) bottom = _height-1;
-		//printf("output: %d [%d] (%d,%d,%d,%d)\r\n", len, bufidx/2, left,top,right,bottom);
 	    send_data(left, top, right, bottom, bufidx/2, tft_line);
 	}
 	else {
-		printf("max data size exceded: %d (%d,%d,%d,%d)\r\n", len, left,top,right,bottom);
+		syslog(LOG_ERR, "max data size exceded: %d (%d,%d,%d,%d)", len, left,top,right,bottom);
 		return 0;  // stop decompression
 	}
 
@@ -2038,8 +2034,6 @@ static int ltft_jpg_image( lua_State* L )
 	JPGIODEV dev;
     char *basename;
     struct stat sb;
-
-	int start = clock();
 
 	int x = luaL_checkinteger( L, 1 );
 	int y = luaL_checkinteger( L, 2 );
@@ -2130,7 +2124,7 @@ static int ltft_jpg_image( lua_State* L )
 					if (scale == maxscale) break;
 				}
 			}
-			//printf("Image dimensions: %dx%d, scale: %d, bytes used: %d\r\n", jd.width, jd.height, scale, jd.sz_pool);
+			syslog(LOG_INFO, "Image dimensions: %dx%d, scale: %d, bytes used: %d", jd.width, jd.height, scale, jd.sz_pool);
 
 			if (radj) {
 				x = _width - (jd.width >> scale);
@@ -2145,23 +2139,22 @@ static int ltft_jpg_image( lua_State* L )
 			// Start to decompress the JPEG file
 			rc = jd_decomp(&jd, tjd_output, scale);
 			if (rc != JDR_OK) {
-				printf("jpg decompression error %d\r\n", rc);
+				syslog(LOG_ERR, "jpg decompression error %d", rc);
 			}
 		}
 		else {
-			printf("jpg prepare error %d\r\n", rc);
+			syslog(LOG_ERR, "jpg prepare error %d", rc);
 		}
 
 		free(work);  // free work buffer
 	}
 	else {
-		printf("work buffer allocation error\r\n");
+		syslog(LOG_ERR, "work buffer allocation error");
 	}
 
 	fclose(dev.fhndl);  // close input file
 
-	lua_pushinteger(L, clock() - start);
-	return 1;
+	return 0;
 }
 
 //==================================
@@ -2200,7 +2193,7 @@ static int tft_image( lua_State* L )
   else xend = x+xsize-1;
   int disp_xsize = xend-x+1;
   if ((disp_xsize <= 1) || (y >= _height)) {
-	  printf("image out of screen.\r\n");
+	  syslog(LOG_ERR, "image out of screen.");
 	  return 0;
   }
 
@@ -2222,7 +2215,7 @@ static int tft_image( lua_State* L )
   do { // read 1 image line from file and send to display
 	xrd = fread(tft_line, 1, 2*xsize, fhndl);  // read line from file
 	if (xrd != (2*xsize)) {
-		printf("Error reading line: %d\r\n", xrd);
+		syslog(LOG_ERR, "Error reading line: %d", xrd);
 		break;
 	}
 
@@ -2278,7 +2271,7 @@ static int tft_bmpimage( lua_State* L )
 	if (xrd != 54) {
 exithd:
 		fclose(fhndl);
-		printf("Error reading header\r\n");
+		syslog(LOG_ERR, "Error reading header");
 		return 0;
 	}
 
@@ -2319,7 +2312,7 @@ exithd:
 	else xend = x+xsize-1;
 	int disp_xsize = xend-x+1;
 	if ((disp_xsize <= 1) || (y >= _height)) {
-		printf("image out of screen.\r\n");
+		syslog(LOG_ERR, "image out of screen.");
 		goto exit;
 	}
 
@@ -2335,10 +2328,9 @@ exithd:
 		// read only the part of image line which can be shown on screen
 		xrd = fread(buf, 1, disp_xsize*3, fhndl);  // read line from file
 		if (xrd != (disp_xsize*3)) {
-			printf("Error reading line: %d (%d)\r\n", y, xrd);
+			syslog(LOG_ERR, "Error reading line: %d (%d)", y, xrd);
 			break;
 		}
-		//printf("read line: %d %d %d %d %d\n", y, offset, xrd, xsize, xend);
 
 		j = 0;
 		for (i=0;i < xrd;i += 3) {
@@ -2350,7 +2342,6 @@ exithd:
 			tft_line[j+1] |= buf[i] >> 3;				// B5
 			j += 2;
 		}
-		//printf("npixel: %d\n", disp_xsize);
 	    send_data(x, y, xend, y, disp_xsize, tft_line);
 
 		y++;	// next image line
@@ -2432,14 +2423,12 @@ static int tft_clear( lua_State* L )
 
 	if (lua_gettop(L) > 0) color = getColor( L, 1 );
 
-	int start = clock();
 	TFT_pushColorRep(0, 0, _width-1, _height-1, color, (uint32_t)(_height*_width));
 
-	lua_pushinteger(L, clock() - start);
 	_bg = color;
 	_initvar();
 
-	return 1;
+	return 0;
 }
 
 //===================================
@@ -2668,6 +2657,66 @@ static int tft_getpixel( lua_State* L )
 	lua_pushinteger(L, color);
 
 	return 1;
+}
+
+//====================================
+static int tft_getline( lua_State* L )
+{
+	_check(L);
+	if (checkParam(3, L)) return 0;
+
+    int out_type = 0;
+    luaL_Buffer b;
+    char hbuf[8];
+
+    if ((lua_gettop(L) > 3) && (lua_isstring(L, 4))) {
+        const char* sarg;
+        size_t sarglen;
+        sarg = luaL_checklstring(L, 4, &sarglen);
+        if (sarglen == 2) {
+        	if (strstr(sarg, "*h") != NULL) out_type = 1;
+        	else if (strstr(sarg, "*t") != NULL) out_type = 2;
+        }
+    }
+
+    int16_t x = luaL_checkinteger( L, 1 );
+	int16_t y = luaL_checkinteger( L, 2 );
+	int len = luaL_checkinteger( L, 3 );
+	uint8_t f = 0;
+	if (len < 1) len = 1;
+	if (len > _width) len = _width;
+	if ((y < 0) || (y > (_height-1))) f= 1;
+	if ((x < 0) || (x > (_width-1))) f= 1;
+	if ((x + len) > _width) len = _width - x;
+
+	if (f) {
+        return luaL_error( L, "wrong coordinates" );
+	}
+
+	if (out_type < 2) luaL_buffinit(L, &b);
+    else lua_newtable(L);
+
+    read_data(x, y, x+len, y, len, tft_line);
+
+	if (out_type == 0) {
+		luaL_addlstring(&b, (const char *)tft_line, len);
+	}
+	else {
+		for (int i = 0; i < len; i+=2) {
+			if (out_type == 1) {
+				sprintf(hbuf, "%04x;", (tft_line[i] << 8) | tft_line[i+1]);
+				luaL_addstring(&b, hbuf);
+			}
+			else {
+				lua_pushinteger( L, (tft_line[i] << 8) | tft_line[i+1]);
+				lua_rawseti(L, -2, (i/2)+1);
+			}
+		}
+	}
+
+    if (out_type < 2) luaL_pushresult(&b);
+
+    return 1;
 }
 
 //=====================================
@@ -2949,24 +2998,39 @@ static int tft_write( lua_State* L )
 
 //--------------------------------------
 static int tft_set_speed(lua_State *L) {
-	tft_spi_config_t *config = tft_get_config(0);
+	int speed = spi_get_speed(DISP_SPI);
 
 	if (lua_gettop(L) > 0) {
-		int speed = luaL_checkinteger(L, 1) * 1000;
+		speed = luaL_checkinteger(L, 1) * 1000;
 		if (speed < 8000) speed = 8000;
 		if (speed > 40000) speed = 40000;
-		if (speed != config->speed) {
-			config->speed = speed;
-		    driver_error_t *error = tft_select_disp();
-		    if (error) {
-		    	printf("Reinitialize TFT SPI error!\r\n");
-		    	return luaL_driver_error(L, error);
-		    }
+		int spd = 80000 / speed;
+		speed = 80000 / spd;
+		spi_set_speed(DISP_SPI, speed);
+		if (speed != spi_get_speed(DISP_SPI)) {
+			spi_set_speed(DISP_SPI, speed);
 		}
 	}
-	lua_pushinteger(L, config->speed / 1000);
+
+	lua_pushinteger(L, speed / 1000);
 
 	return 1;
+}
+
+//-----------------------------------
+static int tft_config(lua_State *L) {
+	if (lua_gettop(L) > 0) {
+		uint8_t sdi = luaL_checkinteger(L, 1);
+		uint8_t sdo = luaL_checkinteger(L, 2);
+		uint8_t sck = luaL_checkinteger(L, 3);
+		uint8_t cs  = luaL_checkinteger(L, 4);
+		uint8_t dc  = luaL_checkinteger(L, 5);
+		uint8_t tcs = luaL_checkinteger(L, 6);
+
+		tft_spi_config(sdi,sdo,sck,cs,dc,tcs);
+	}
+
+	return 0;
 }
 
 //--------------------------------------------
@@ -3047,22 +3111,16 @@ static int tp_get_data(uint8_t type, int samples)
 //====================================
 static int tft_get_touch(lua_State *L)
 {
-	if (TFT_type != 1) {
-		// touch available only on ILI9341
-		lua_pushinteger(L, -1);
-		return 1;
-	}
-
-    driver_error_t *toucherror;
-    driver_error_t *tfterror;
 	int result = -1;
     int X=0, Y=0, Z=0;
 
-	uint32_t start = clock();
-
-	// Initialize touch spi interface
-    toucherror = tft_select_touch();
-    if (toucherror) goto exit;
+	if (TFT_type == 999) {
+		// touch available only on ILI9341
+		lua_pushinteger(L, -1);
+		lua_pushinteger(L, X);
+		lua_pushinteger(L, Y);
+		return 3;
+	}
 
     result = tp_get_data(0xB0, 3);
 	if (result > 50)  {
@@ -3070,78 +3128,46 @@ static int tft_get_touch(lua_State *L)
 		Z = result;
 
 		result = tp_get_data(0xD0, 10);
-		if (result < 0) goto exit;
-		X = result;
+		if (result >= 0) {
+			X = result;
 
-		result = tp_get_data(0x90, 10);
-		if (result < 0) goto exit;
-		Y = result;
+			result = tp_get_data(0x90, 10);
+			if (result >= 0) Y = result;
+		}
 	}
-
-exit:
-	// reinitialize tft spi
-	tfterror = tft_select_disp();
-	uint32_t end = clock();
-    if (tfterror) {
-    	printf("Reinitialize TFT SPI error!\r\n");
-		if (toucherror) free(toucherror);
-    	return luaL_driver_error(L, tfterror);
-    }
-    else if (toucherror) {
-    	printf("Initialize Touch SPI error!\r\n");
-    	return luaL_driver_error(L, toucherror);
-    }
 
 	if (result >= 0) lua_pushinteger(L, Z);
 	else lua_pushinteger(L, result);
 	lua_pushinteger(L, X);
 	lua_pushinteger(L, Y);
-	lua_pushinteger(L, end-start);
 
-	return 4;
+	return 3;
 }
 
 //=====================================
 static int tft_read_touch(lua_State *L)
 {
-	if (TFT_type != 1) {
-		// touch available only on ILI9341
-		lua_pushinteger(L, -1);
-		return 1;
-	}
-
-    driver_error_t *toucherror;
-    driver_error_t *tfterror;
 	int result = -1;
     int32_t X=0, Y=0, tmp;
 
-	// Initialize touch spi interface
-    toucherror = tft_select_touch();
-    if (toucherror) goto exit;
+	if (TFT_type != 1) {
+		// touch available only on ILI9341
+		lua_pushinteger(L, -1);
+		lua_pushinteger(L, X);
+		lua_pushinteger(L, Y);
+		return 3;
+	}
 
     result = tp_get_data(0xB0, 3);
 	if (result > 50)  {
 		// tp pressed
 		result = tp_get_data(0xD0, 10);
-		if (result < 0) goto exit;
-		X = result;
+		if (result >= 0) {
+			X = result;
 
-		result = tp_get_data(0x90, 10);
-		if (result < 0) goto exit;
-		Y = result;
-	}
-
-exit:
-	// reinitialize tft spi
-	tfterror = tft_select_disp();
-	if (tfterror) {
-		printf("Reinitialize TFT SPI error!\r\n");
-		if (toucherror) free(toucherror);
-		return luaL_driver_error(L, tfterror);
-	}
-	else if (toucherror) {
-		printf("Initialize Touch SPI error!\r\n");
-		return luaL_driver_error(L, toucherror);
+			result = tp_get_data(0x90, 10);
+			if (result >= 0) Y = result;
+		}
 	}
 
 	if (result <= 50) {
@@ -3156,7 +3182,6 @@ exit:
 	int ytop    = (tp_caly >> 16) & 0x3FFF;
 	int ybottom = tp_caly & 0x3FFF;
 
-	//printf("X=%d, Y=%d [xcalib=(%d - %d), ycalib=(%d - %d)]\r\n",X, Y, xleft, xright, ytop, ybottom);
 	if (((xright - xleft) != 0) && ((ybottom - ytop) != 0)) {
 		X = ((X - xleft) * 320) / (xright - xleft);
 		Y = ((Y - ytop) * 240) / (ybottom - ytop);
@@ -3204,33 +3229,6 @@ static int tft_set_cal(lua_State *L)
     return 0;
 }
 
-//---------------------------------
-static int TFT_test(lua_State *L) {
-	_check(L);
-
-	uint16_t x,y;
-	uint16_t color = luaL_checkinteger(L, 1);
-
-	uint32_t end, start = clock();
-	for (y=0;y <_height;y++) {
-		for (x=0;x <_width;x++) {
-			drawPixel(x,y,color);
-		}
-	}
-	end = clock();
-	lua_pushinteger(L, end-start);
-
-    vTaskDelay(1000 / portTICK_RATE_MS);
-
-    start = clock();
-	TFT_pushColorRep(0, 0, _width-1, _height-1, TFT_YELLOW, (uint32_t)(_height*_width));
-	end = clock();
-	lua_pushinteger(L, end-start);
-
-	return 2;
-}
-
-
 
 // =============================================================================
 
@@ -3259,6 +3257,7 @@ static const LUA_REG_TYPE tft_map[] = {
 	{ LSTRKEY( "invert" ),			LFUNCVAL( tft_invert )},
 	{ LSTRKEY( "putpixel" ),		LFUNCVAL( tft_putpixel )},
 	{ LSTRKEY( "getpixel" ),		LFUNCVAL( tft_getpixel )},
+	{ LSTRKEY( "getline" ),			LFUNCVAL( tft_getline )},
 	{ LSTRKEY( "line" ),			LFUNCVAL( tft_drawline )},
 	{ LSTRKEY( "linebyangle" ),		LFUNCVAL( tft_drawlineByAngle )},
 	{ LSTRKEY( "rect" ),			LFUNCVAL( tft_rect )},
@@ -3279,9 +3278,7 @@ static const LUA_REG_TYPE tft_map[] = {
 	{ LSTRKEY( "getrawtouch" ),		LFUNCVAL( tft_get_touch )},
 	{ LSTRKEY( "setcal" ),			LFUNCVAL( tft_set_cal )},
 	{ LSTRKEY( "setspeed" ),		LFUNCVAL( tft_set_speed )},
-	{ LSTRKEY( "test" ),			LFUNCVAL( TFT_test )},
-	//{ LSTRKEY( "ontouch" ),		LFUNCVAL( tft_on_touch )},
-	//{ LSTRKEY( "set_touch_cs" ),	LFUNCVAL( tft_set_touch_cs )},
+	{ LSTRKEY( "config" ),			LFUNCVAL( tft_config )},
 #if LUA_USE_ROTABLE
 	// Constant definitions
 	  { LSTRKEY( "PORTRAIT" ),       LNUMVAL( PORTRAIT ) },

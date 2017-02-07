@@ -1,3 +1,9 @@
+/* Lua-RTOS-ESP32 TFT module
+ * SPI access functions
+ * Author: LoBo (loboris@gmail.com, loboris.github)
+ *
+ * Module supporting SPI TFT displays based on ILI9341 & ST7735 controllers
+*/
 
 
 #ifndef _TFTSPI_H_
@@ -15,28 +21,34 @@
 #include "soc/gpio_struct.h"
 #include "driver/gpio.h"
 #include "drivers/spi.h"
+#include "sys/syslog.h"
 
 //#define TFT_USE_BKLT	1
 #define TFT_SOFT_RESET	1
 
-#define PIN_NUM_MISO 25
-#define PIN_NUM_MOSI 23
-#define PIN_NUM_CLK  19
-#define PIN_NUM_CS   22
+// Spi devices used for tft
+#define DISP_SPI	NSPI*1+3  // on VSPI
+#define TOUCH_SPI	NSPI*2+3  // on VSPI
 
-#define PIN_NUM_DC   21
-#define PIN_NUM_TCS  18
-#define PIN_NUM_BCKL  5
+// Default SPI pins
+#define PIN_NUM_MISO 25	// MISO
+#define PIN_NUM_MOSI 23	// MOSI
+#define PIN_NUM_CLK  19	// CLK
+#define PIN_NUM_CS   22 // Display CS
+#define PIN_NUM_DC   21	// Display DC (data/command)
+#define PIN_NUM_TCS  18	// Touch CS
+#ifdef TFT_USE_BKLT
+#define PIN_NUM_BCKL  5	// Back light controll
+#endif
 
 #ifndef TFT_SOFT_RESET
-  #define PIN_NUM_RST  18
+  #define PIN_NUM_RST  18	// Display RESET
   #define TFT_RST1  gpio_set_level(PIN_NUM_RST, 1)
   #define TFT_RST0  gpio_set_level(PIN_NUM_RST, 0)
 #endif
 
-#define TFT_MAX_BUF_LEN 2040 // max spi data buffer size in words (uint16_t) !! DO NOT SET > 2040 !! (DMA transfer buffer!)
-#define TFT_NUM_TRANS 6
-#define TFT_LINEBUF_MAX_SIZE 640
+#define TFT_MAX_BUF_LEN 1920		// max spi data buffer size in words (uint16_t) used for sending repeated color
+#define TFT_LINEBUF_MAX_SIZE 640	// line buffer maximum size in bytes
 
 #define tft_color(color) ( (uint16_t)((color >> 8) | (color << 8)) )
 #define swap(a, b) { int16_t t = a; a = b; b = t; }
@@ -53,6 +65,7 @@ typedef struct {
     unsigned char	spi;
     unsigned char	dc;
     unsigned int	speed;
+    unsigned int	divisor;
     unsigned int	mode;
     unsigned int	bits;
     spi_resources_t	resources;
@@ -229,12 +242,9 @@ uint16_t _height;
 uint8_t tft_line[640];
 
 void tft_set_defaults();
+void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc, unsigned char tcs);
 
-driver_error_t *tft_select_disp();
-driver_error_t *tft_select_touch();
 driver_error_t *tft_spi_init(uint8_t typ);
-
-tft_spi_config_t *tft_get_config(uint8_t which);
 
 void tft_cmd(const uint8_t cmd);
 void tft_data(const uint8_t *data, int len);

@@ -185,6 +185,7 @@ static int lsensor_setup( lua_State* L ) {
     }
 
     data->instance = instance;
+    data->adquired = 0;
 
     luaL_getmetatable(L, "sensor");
     lua_setmetatable(L, -2);
@@ -213,7 +214,7 @@ static int lsensor_set( lua_State* L ) {
     	return luaL_driver_error(L, error);
     }
 
-    return 0;
+	return 0;
 }
 
 static int lsensor_acquire( lua_State* L ) {
@@ -228,6 +229,8 @@ static int lsensor_acquire( lua_State* L ) {
     	return luaL_driver_error(L, error);
     }
 
+    udata->adquired = 1;
+
 	return 0;
 }
 
@@ -241,10 +244,19 @@ static int lsensor_read( lua_State* L ) {
 
     const char *id = luaL_checkstring( L, 2 );
 
+    // If data is not acquired acquire data
+    if (!udata->adquired) {
+        if ((error = sensor_acquire(udata->instance))) {
+        	return luaL_driver_error(L, error);
+        }
+    }
+
     // Read data
     if ((error = sensor_read(udata->instance, id, &value))) {
     	return luaL_driver_error(L, error);
     }
+
+    udata->adquired = 0;
 
 	switch (value->type) {
 		case SENSOR_NO_DATA:
@@ -529,7 +541,6 @@ MODULE_REGISTER_UNMAPPED(SENSOR, sensor, luaopen_sensor);
 s1 = sensor.setup("PING28015", pio.GPIO16)
 s1:set("temperature",20)
 while true do
-	s1:acquire()
 	distance = s1:read("distance")
 	print("distance "..distance)
 	tmr.delayms(500)
@@ -537,7 +548,6 @@ end
 
 s1 = sensor.setup("TMP36", adc.ADC1, adc.ADC_CH6, 12)
 while true do
-	s1:acquire()
 	temperature = s1:read("temperature")
 	print("temp "..temperature)
 	tmr.delayms(500)
@@ -545,7 +555,6 @@ end
 
 s1 = sensor.setup("DHT11", pio.GPIO4)
 while true do
-	s1:acquire()
 	temperature = s1:read("temperature")
 	humidity = s1:read("humidity")
 	print("temp "..temperature..", hum "..humidity)
@@ -555,7 +564,6 @@ end
 s1 = sensor.setup("DS1820", pio.GPIO18, 1)
 s1:set("resolution",11)
 while true do
-	s1:acquire()
 	temperature = s1:read("temperature")
 	print("temp "..temperature..")
 	tmr.delayms(500)
@@ -563,7 +571,6 @@ end
 
 s1 = sensor.setup("BME280", i2c.I2C0, 400, 21, 22)
 while true do
-	s1:acquire()
 	temperature = s1:read("temperature")
 	humidity = s1:read("humidity")
 	pressure = s1:read("pressure")
