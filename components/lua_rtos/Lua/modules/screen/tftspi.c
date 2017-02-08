@@ -323,7 +323,7 @@ uint16_t touch_get_data(uint8_t type)
 {
 	uint8_t txbuf[4] = {0};
 	uint8_t rxbuf[4] = {0};
-	uint16_t tdata = 0;
+	//uint16_t tdata = 0;
 
 	taskDISABLE_INTERRUPTS();
 	spi_select(TOUCH_SPI);
@@ -335,9 +335,9 @@ uint16_t touch_get_data(uint8_t type)
 
     taskENABLE_INTERRUPTS();
 
-    if ((rxbuf[2] & 0x0F) == 0) tdata = (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
+    //if ((rxbuf[2] & 0x0F) == 0) tdata = (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
 
-    return tdata;
+    return (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
 }
 
 
