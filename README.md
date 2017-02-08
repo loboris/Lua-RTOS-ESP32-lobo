@@ -12,22 +12,35 @@
 
 * tft
   * full support for ILI9341 & ST7735 based TFT modules in 4-wire SPI mode.
-  * Supported  are many graphics elements, fixed width and proportional fonts (unlimited number of fonts, loaded from file)
+  * Supported  are many graphics elements, fixed width and proportional fonts (7 included, unlimited number of fonts from file)
   * jpeg, bmp and raw bitmap images.
-  * Touch screen supported (not tested yet)
+  * Touch screen supported
  
 ### Modified modules
 
 * io
   * added support for ymodem file transfer (io.ymsend & io.ymreceive functions)
 
+* os
+  * added function os.exists() for checking file existance
+
 * i2c
   * added high level functions: send, receive, sendreceive
 
+* spi
+  * spi driver to support spi on any pin (needed fot tft module)
+
 * sensor
+  * added i2c support 
+  * extended read support with read functions
+  * enhanced sensor list function
   * support for BME280 temperature, humidity and pressure sensors in I2C mode
   * support for 1-wire devices on multiple 1-wire buses
   * DS1820 temperature sensors support (including parasite power support)
+
+### Other
+
+Added some documentations, lua examples, tools...
 
 ---
 

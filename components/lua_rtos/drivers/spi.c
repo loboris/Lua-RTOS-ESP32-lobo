@@ -85,7 +85,9 @@ DRIVER_REGISTER_ERROR(SPI, spi, InvalidUnit, "invalid unit", SPI_ERR_INVALID_UNI
 spi_interface_t spi[NSPI*NSPI_DEV] = {0};
 
 #define PIN_FUNC_SPI 1
-#define PIN_FUNC_SPI 1
+#define MATRIX_DETACH_OUT_SIG 0x100
+#define MATRIX_DETACH_IN_LOW_PIN 0x30
+#define MATRIX_DETACH_IN_LOW_HIGH 0x38
 
 // Native pins of the spi peripherals 1-3
 static const spi_signal_conn_t io_signal[3]={
@@ -145,84 +147,11 @@ typedef union {
     };
 } spiClk_t;
 
-/*
-typedef union {
-	struct {
-		uint32_t clkcnt_l:       6;  // n the master mode it must be equal to spi_clkcnt_N. In the slave mode it must be 0.
-		uint32_t clkcnt_h:       6;  // In the master mode it must be floor((spi_clkcnt_N+1)/2-1). In the slave mode it must be 0.
-		uint32_t clkcnt_n:       6;  // In the master mode it is the divider of spi_clk. So spi_clk frequency is system/(spi_clkdiv_pre+1)/(spi_clkcnt_N+1)
-		uint32_t clkdiv_pre:    13;  // In the master mode it is pre-divider of spi_clk.
-		uint32_t clk_equ_sysclk: 1;  // In the master mode 1: spi_clk is eqaul to system 0: spi_clk is divided from system clock.
-	};
-	uint32_t val;
-} spi_clk_t;
-
-static uint32_t spi_set_clock(int hz) {
-    int pre, n, h, l;
-    spi_clk_t clock;
-
-    //Assumes a hardcoded 80MHz Fapb for now. ToDo: figure out something better once we have
-    //clock scaling working.
-    int fapb = APB_CLK_FREQ;
-    int duty_cycle = 128;
-
-    //In hw, n, h and l are 1-64, pre is 1-8K. Value written to register is one lower than used value.
-    if (hz>((fapb/4)*3)) {
-        //Using Fapb directly will give us the best result here.
-        clock.clkcnt_l=0;
-        clock.clkcnt_h=0;
-        clock.clkcnt_n=0;
-        clock.clkdiv_pre=0;
-        clock.clk_equ_sysclk=1;
-    } else {
-        //For best duty cycle resolution, we want n to be as close to 32 as possible, but
-        //we also need a pre/n combo that gets us as close as possible to the intended freq.
-        //To do this, we bruteforce n and calculate the best pre to go along with that.
-        //If there's a choice between pre/n combos that give the same result, use the one
-        //with the higher n.
-        int bestn=-1;
-        int bestpre=-1;
-        int besterr=0;
-        int errval;
-        for (n=1; n<=64; n++) {
-            //Effectively, this does pre=round((fapb/n)/hz).
-            pre = ((fapb/n)+(hz/2))/hz;
-            if (pre<=0) pre = 1;
-            if (pre>8192) pre = 8192;
-            errval = abs((fapb / (pre * n)) - hz);
-            if (bestn==-1 || errval<=besterr) {
-                besterr=errval;
-                bestn=n;
-                bestpre=pre;
-            }
-        }
-
-        n=bestn;
-        pre=bestpre;
-        l=n;
-        //This effectively does round((duty_cycle*n)/256)
-        h=(duty_cycle*n+127)/256;
-        if (h<=0) h=1;
-
-        clock.clk_equ_sysclk=0;
-        clock.clkcnt_n=n-1;
-        clock.clkdiv_pre=pre-1;
-        clock.clkcnt_h=h-1;
-        clock.clkcnt_l=l-1;
-    }
-    uint32_t divs = (clock.clkdiv_pre + 1) * (clock.clkcnt_n + 1);
-    if (!clock.clk_equ_sysclk) {
-		clock.val = (((clock.clkdiv_pre & SPI_CLKDIV_PRE) << SPI_CLKDIV_PRE_S) |
-					   ((clock.clkcnt_n & SPI_CLKCNT_N) << SPI_CLKCNT_N_S) |
-					   ((clock.clkcnt_h & SPI_CLKCNT_H) << SPI_CLKCNT_H_S) |
-					   (clock.clkcnt_l << SPI_CLKCNT_L_S)) << 5;
-    }
-	else clock.val = SPI_CLK_EQU_SYSCLK;
-    printf("CLOCK: [%d, %d, %d, %d, %d] divs=%d, divisor=%d, speed=%d\r\n",
-            clock.clk_equ_sysclk, clock.clkcnt_n, clock.clkdiv_pre, clock.clkcnt_h, clock.clkcnt_l, divs, clock.val, APB_CLK_FREQ / divs / 1000);
-    return clock.val;
+static uint32_t spiClockDivToFrequency(uint32_t clockDiv)
+{
+    spiClk_t reg = { clockDiv };
+    return ClkRegToFreq(&reg);
 }
-*/
 
 static uint32_t spiFrequencyToClockDiv(uint32_t freq) {
 
@@ -274,7 +203,6 @@ static uint32_t spiFrequencyToClockDiv(uint32_t freq) {
         }
         calN++;
     }
-    //printf("DIVISOR=%d\r\n",bestReg.regValue);
     return bestReg.regValue;
 }
 
@@ -304,24 +232,22 @@ void spi_set_speed(int unit, unsigned int sck) {
 
 	dev->speed = sck;
     dev->divisor = spiFrequencyToClockDiv(sck * 1000);
-    //dev->divisor = spi_set_clock(sck * 1000);
     dev->dirty = 1;
 }
 
+#include <soc/dport_reg.h>
 /*
  * Select the device. Prior this we reconfigure the SPI bus
  * to the required settings.
  */
 void spi_select(int unit) {
 	spi_interface_t *dev = &spi[unit];
-	/*
 	int lunit = last_unit;
 	spi_interface_t *ldev = NULL;
 	if (lunit < (NSPI*NSPI_DEV)) {
 		ldev = &spi[lunit];
 		lunit &= (NSPI-1);
 	}
-	*/
 	if (last_unit != unit) {
 		// spi interface changed
 		dev->dirty = 1;
@@ -331,23 +257,44 @@ void spi_select(int unit) {
 
     if (dev->dirty) {
         int pin_func = PIN_FUNC_SPI; // Native spi pins
-    	/*
     	// === SPI (re)initialization is necessary ===
         if ((ldev) && (unit > 0)) {
-			//Check if the last unit pins correspond to the native pins of the peripheral
+        	// Complete operations, if pending
+            CLEAR_PERI_REG_MASK(SPI_SLAVE_REG(lunit), SPI_TRANS_DONE << 5);
+            SET_PERI_REG_MASK(SPI_USER_REG(lunit), SPI_CS_SETUP);
+
+            //Check if the last unit pins correspond to the native pins of the peripheral
 			if (ldev->res->sdo != io_signal[lunit-1].spid_native)   pin_func = PIN_FUNC_GPIO;
 			if (ldev->res->sdi != io_signal[lunit-1].spiq_native)   pin_func = PIN_FUNC_GPIO;
 			if (ldev->res->sck != io_signal[lunit-1].spiclk_native) pin_func = PIN_FUNC_GPIO;
 			if (ldev->res->cs  != io_signal[lunit-1].spics0_native) pin_func = PIN_FUNC_GPIO;
 			if (pin_func == PIN_FUNC_GPIO) {
-				// Cancel gpio matrix assignment
-	        	gpio_matrix_in(ldev->res->sdi,  0x100, 0);
-				gpio_matrix_out(ldev->res->sdo, 0x100, 0, 0);
-				gpio_matrix_out(ldev->res->sck, 0x100, 0, 0);
-				gpio_matrix_out(ldev->res->cs,  0x100, 0, 0);
+				// Detach gpios from spi interface
+	        	gpio_matrix_in(ldev->res->sdi,  MATRIX_DETACH_IN_LOW_PIN, 0);
+				gpio_matrix_out(ldev->res->sdo, MATRIX_DETACH_OUT_SIG, 0, 0);
+				gpio_matrix_out(ldev->res->sck, MATRIX_DETACH_OUT_SIG, 0, 0);
+				gpio_matrix_out(ldev->res->cs,  MATRIX_DETACH_OUT_SIG, 0, 0);
+
+				gpio_pad_select_gpio(ldev->res->sdi);
+				gpio_pad_select_gpio(ldev->res->sdo);
+				gpio_pad_select_gpio(ldev->res->sck);
+				gpio_pad_select_gpio(ldev->res->cs);
+
+	        	gpio_set_direction(ldev->res->sdo, GPIO_MODE_OUTPUT);
+	        	gpio_set_direction(ldev->res->sck, GPIO_MODE_OUTPUT);
+	        	gpio_set_direction(ldev->res->cs, GPIO_MODE_OUTPUT);
+	        	gpio_set_direction(ldev->res->sdi, GPIO_MODE_INPUT);
+	        	gpio_set_pull_mode(ldev->res->sdi, GPIO_PULLUP_ONLY);
+
+	        	gpio_pin_set(ldev->res->cs);
 			}
         }
-		*/
+
+    	// Complete operations, if pending
+        CLEAR_PERI_REG_MASK(SPI_SLAVE_REG(unit), SPI_TRANS_DONE << 5);
+        SET_PERI_REG_MASK(SPI_USER_REG(unit), SPI_CS_SETUP);
+
+        // Configure pins
         pin_func = PIN_FUNC_SPI; // Native spi pins
 		if (unit > 0) {
 			//Check if the selected pins correspond to the native pins of the peripheral
@@ -358,11 +305,6 @@ void spi_select(int unit) {
         }
         else pin_func = PIN_FUNC_GPIO; // Use GPIO for spi pins
 
-    	// Complete operations, if pending
-        CLEAR_PERI_REG_MASK(SPI_SLAVE_REG(unit), SPI_TRANS_DONE << 5);
-        SET_PERI_REG_MASK(SPI_USER_REG(unit), SPI_CS_SETUP);
-
-        // Configure pins
     	PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sdi], pin_func);
         PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sdo], pin_func);
         PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sck], pin_func);
@@ -525,7 +467,6 @@ void spi_pin_config(int unit, unsigned char sdi, unsigned char sdo, unsigned cha
 }
 
 void IRAM_ATTR spi_master_op(int unit, unsigned int word_size, unsigned int len, unsigned char *out, unsigned char *in) {
-	spi_interface_t *dev = &spi[unit];
 	unsigned int bytes = word_size * len; // Number of bytes to write / read
 	unsigned int idx = 0;
 
@@ -740,7 +681,8 @@ int spi_cs_gpio(int unit) {
 unsigned int spi_get_speed(int unit) {
 	spi_interface_t *dev = &spi[unit];
 
-    return dev->speed;
+    //return dev->speed;
+    return spiClockDivToFrequency(dev->divisor);
 }
 
 // Lock resources needed by the SPI

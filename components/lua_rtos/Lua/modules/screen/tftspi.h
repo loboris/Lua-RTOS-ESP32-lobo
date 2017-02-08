@@ -11,7 +11,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_SCREEN
+#ifdef LUA_USE_SCREEN
 #define LUA_USE_TFT 1
 #endif
 

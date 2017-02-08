@@ -133,7 +133,7 @@ static void sd_wait_ready(int spi, unsigned int limit, unsigned int *maxcount)
             return;
         }
     }
-    syslog(LOG_ERR, "sd: wait_ready(%d) failed", limit);
+    printf("sd: wait_ready(%d) failed\r\n", limit);
 }
 
 /*
@@ -158,7 +158,6 @@ static int card_cmd(unsigned int unit, unsigned int cmd, unsigned int addr)
     int spi = sddrives[unit].spi;
     unsigned int i;
     int reply;
-
     /* Wait for not busy, up to 300 msec. */
     if (cmd != CMD_GO_IDLE)
         sd_wait_ready(spi, TIMO_WAIT_CMD, &sd_timo_wait_cmd);
@@ -327,7 +326,6 @@ static int card_init(int unit)
         if (reply != 0)
         {
             sd_deselect(spi);
-            printf("sd%d: READ_OCR failed, reply=%02x", unit, reply);
             return 0;
         }
         response[0] = spi_transfer(spi, 0xFF);

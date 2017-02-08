@@ -1468,20 +1468,28 @@ static void TFT_draw7seg(int16_t x, int16_t y, int8_t num, int16_t w, int16_t l,
 
 //---------------------------------------------
 static void TFT_print(char *st, int x, int y) {
-  int stl, i, tmpw, tmph;
+  int stl, i, tmpw, tmph, fh;
   uint8_t ch;
 
   if (cfont.bitmap == 0) return; // wrong font selected
 
   // for rotated string x cannot be RIGHT or CENTER
-  if ((rotation != 0) && (x < -2)) return;
+  if ((rotation != 0) && ((x < -2) || (y < -2))) return;
 
   stl = strlen(st); // number of characters in string to print
 
   // set CENTER or RIGHT possition
   tmpw = getStringWidth(st);
+  fh = cfont.y_size; // font height
+  if ((cfont.x_size != 0) && (cfont.bitmap == 2)) {
+    // 7-segment font
+    fh = (3 * (2 * cfont.y_size + 1)) + (2 * cfont.x_size);  // character height
+  }
+
   if (x==RIGHT) x = dispWin.x2 - tmpw - 1;
   if (x==CENTER) x = (dispWin.x2 - tmpw - 1)/2;
+  if (y==BOTTOM) y = dispWin.y2 - fh - 1;
+  if (y==CENTER) y = (dispWin.y2 - (fh/2) - 1)/2;
   if (x < dispWin.x1) x = dispWin.x1;
   if (y < dispWin.y1) y = dispWin.y1;
 
@@ -1489,7 +1497,8 @@ static void TFT_print(char *st, int x, int y) {
   TFT_Y = y;
   int offset = TFT_OFFSET;
 
-  tmph = cfont.y_size;
+
+  tmph = cfont.y_size; // font height
   // for non-proportional fonts, char width is the same for all chars
   if (cfont.x_size != 0) {
     if (cfont.bitmap == 2) { // 7-segment font
@@ -1499,6 +1508,9 @@ static void TFT_print(char *st, int x, int y) {
     else tmpw = cfont.x_size;
   }
   if ((TFT_Y + tmph - 1) > dispWin.y2) return;
+
+  // adjust y position
+
 
   for (i=0; i<stl; i++) {
     ch = *st++; // get char
@@ -2939,7 +2951,59 @@ static int tft_triangle( lua_State* L )
 	return 0;
 }
 
-//lcd.write(x,y,string|intnum|{floatnum,dec},...)
+//=====================================
+static int tft_writepos( lua_State* L )
+{
+  _check(L);
+  if (checkParam(3, L)) return 0;
+
+  const char* buf;
+  size_t len;
+  int w, h;
+
+  if (cfont.bitmap == 0) goto errexit;
+
+  int x = luaL_checkinteger( L, 1 );
+  // for rotated string x cannot be RIGHT or CENTER
+  if ((rotation != 0) && (x < -2)) goto errexit;
+
+  int y = luaL_checkinteger( L, 2 );
+  if ((x != LASTX) || (y != LASTY)) TFT_OFFSET = 0;
+  if (x == LASTX) x = TFT_X;
+  if (y == LASTY) y = TFT_Y;
+
+  luaL_checktype( L, 3, LUA_TSTRING );
+  buf = lua_tolstring( L, 3, &len );
+
+  w = getStringWidth((char*)buf);
+  h = cfont.y_size; // font height
+  if ((cfont.x_size != 0) && (cfont.bitmap == 2)) {
+    // 7-segment font
+    h = (3 * (2 * cfont.y_size + 1)) + (2 * cfont.x_size);  // character height
+  }
+
+  if (x==RIGHT) x = dispWin.x2 - w - 1;
+  if (x==CENTER) x = (dispWin.x2 - w - 1)/2;
+  if (y==BOTTOM) y = dispWin.y2 - h - 1;
+  if (y==CENTER) y = (dispWin.y2 - (h/2) - 1)/2;
+  if (x < dispWin.x1) x = dispWin.x1;
+  if (y < dispWin.y1) y = dispWin.y1;
+
+  if ((y + h - 1) > dispWin.y2) goto errexit;
+
+  lua_pushinteger(L, x);
+  lua_pushinteger(L, y);
+  lua_pushinteger(L, w);
+  lua_pushinteger(L, h);
+
+  return 4;
+
+errexit:
+	lua_pushnil(L);
+	return 1;
+}
+
+//tft.write(x,y,string|intnum|{floatnum,dec},...)
 //==================================
 static int tft_write( lua_State* L )
 {
@@ -3269,6 +3333,7 @@ static const LUA_REG_TYPE tft_map[] = {
 	{ LSTRKEY( "star" ),			LFUNCVAL( tft_star )},
 	{ LSTRKEY( "triangle" ),		LFUNCVAL( tft_triangle )},
 	{ LSTRKEY( "write" ),			LFUNCVAL( tft_write )},
+	{ LSTRKEY( "stringpos" ),		LFUNCVAL( tft_writepos )},
 	{ LSTRKEY( "image" ),			LFUNCVAL( tft_image )},
 	{ LSTRKEY( "jpgimage" ),		LFUNCVAL( ltft_jpg_image )},
 	{ LSTRKEY( "bmpimage" ),		LFUNCVAL( tft_bmpimage )},
@@ -3287,6 +3352,7 @@ static const LUA_REG_TYPE tft_map[] = {
 	  { LSTRKEY( "LANDSCAPE_FLIP" ), LNUMVAL( LANDSCAPE_FLIP ) },
 	  { LSTRKEY( "CENTER" ),         LNUMVAL( CENTER ) },
 	  { LSTRKEY( "RIGHT" ),          LNUMVAL( RIGHT ) },
+	  { LSTRKEY( "BOTTOM" ),         LNUMVAL( BOTTOM ) },
 	  { LSTRKEY( "LASTX" ),          LNUMVAL( LASTX ) },
 	  { LSTRKEY( "LASTY" ),          LNUMVAL( LASTY ) },
 	  { LSTRKEY( "BLACK" ),          LNUMVAL( TFT_BLACK ) },

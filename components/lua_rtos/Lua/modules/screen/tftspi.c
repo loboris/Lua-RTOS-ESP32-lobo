@@ -69,13 +69,13 @@ void tft_data(const uint8_t *data, int len)
 //---------------------------------------------------
 void drawPixel(int16_t x, int16_t y, uint16_t color)
 {
-	// ** Send address window **
-	uint8_t cmd = TFT_CASET;
-	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
-
     taskDISABLE_INTERRUPTS();
 
 	spi_select(DISP_SPI);
+
+	// ** Send address window **
+	uint8_t cmd = TFT_CASET;
+	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
 
     DC_CMD;
     spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
@@ -111,15 +111,15 @@ void drawPixel(int16_t x, int16_t y, uint16_t color)
 //--------------------------------------
 uint16_t readPixel(int16_t x, int16_t y)
 {
-	unsigned char color[4] = {0xFF}, dummywr[4] = {0};
-
-	// ** Send address window **
-	uint8_t cmd = TFT_CASET;
-	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
+	unsigned char color[4] = {0}, dummywr[4] = {0};
 
 	taskDISABLE_INTERRUPTS();
 
 	spi_select(DISP_SPI);
+
+	// ** Send address window **
+	uint8_t cmd = TFT_CASET;
+	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
 
     DC_CMD;
     spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
@@ -141,8 +141,9 @@ uint16_t readPixel(int16_t x, int16_t y)
     spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
 
     DC_DATA;
-    udelay(50);
-    spi_master_op(DISP_SPI, 1, 4, dummywr, color);
+    //udelay(50);
+
+	spi_master_op(DISP_SPI, 1, 4, dummywr, color);
 
 	spi_deselect(DISP_SPI);
 
@@ -310,10 +311,11 @@ void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
     int idx = 0;
     uint16_t color;
     for (int i=1; i<(len*3); i+=3) {
-    	color = (uint16_t)((uint16_t)((rbuf[1] & 0xF8) << 8) | (uint16_t)((rbuf[2] & 0xFC) << 3) | (uint16_t)(rbuf[3] >> 3));
+    	color = (uint16_t)((uint16_t)((rbuf[i] & 0xF8) << 8) | (uint16_t)((rbuf[i+1] & 0xFC) << 3) | (uint16_t)(rbuf[i+2] >> 3));
     	buf[idx++] = color >> 8;
     	buf[idx++] = color & 0xFF;
     }
+    free(rbuf);
 }
 
 //-----------------------------------
@@ -321,6 +323,7 @@ uint16_t touch_get_data(uint8_t type)
 {
 	uint8_t txbuf[4] = {0};
 	uint8_t rxbuf[4] = {0};
+	uint16_t tdata = 0;
 
 	taskDISABLE_INTERRUPTS();
 	spi_select(TOUCH_SPI);
@@ -332,7 +335,9 @@ uint16_t touch_get_data(uint8_t type)
 
     taskENABLE_INTERRUPTS();
 
-    return (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
+    if ((rxbuf[2] & 0x0F) == 0) tdata = (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
+
+    return tdata;
 }
 
 
