@@ -142,6 +142,9 @@ static int spiffs_result(int res) {
 
 static int IRAM_ATTR vfs_spiffs_open(const char *path, int flags, int mode) {
 	int fd, result = 0;
+	u8_t meta[SPIFFS_OBJ_META_LEN];
+    time_t now = time(NULL); // Get the system time
+    memcpy(meta, &now, sizeof(time_t));
 
 	// Allocate new file
 	vfs_spiffs_file_t *file = calloc(1, sizeof(vfs_spiffs_file_t));
@@ -215,6 +218,8 @@ static int IRAM_ATTR vfs_spiffs_open(const char *path, int flags, int mode) {
     	return -1;
     }
 
+    SPIFFS_fupdate_meta(&fs, file->spiffs_file, meta);
+
     return fd;
 }
 
@@ -285,6 +290,8 @@ static int IRAM_ATTR vfs_spiffs_fstat(int fd, struct stat * st) {
 	vfs_spiffs_file_t *file;
     spiffs_stat stat;
 	int res;
+	time_t ftime;
+
 
     res = list_get(&files, fd, (void **)&file);
     if (res) {
@@ -305,6 +312,7 @@ static int IRAM_ATTR vfs_spiffs_fstat(int fd, struct stat * st) {
     res = SPIFFS_stat(&fs, file->path, &stat);
     if (res == SPIFFS_OK) {
     	st->st_size = stat.size;
+
 	} else {
 		st->st_size = 0;
 	    res = spiffs_result(fs.err_code);
@@ -316,6 +324,9 @@ static int IRAM_ATTR vfs_spiffs_fstat(int fd, struct stat * st) {
     	errno = res;
     	return -1;
     }
+
+    memcpy(&ftime, &stat.meta, sizeof(time_t));
+    st->st_mtime = ftime;
 
     return 0;
 }
@@ -600,6 +611,11 @@ static int IRAM_ATTR vfs_spiffs_mkdir(const char *path, mode_t mode) {
         return -1;
     }
 
+	u8_t meta[SPIFFS_OBJ_META_LEN];
+    time_t now = time(NULL); // Get the system time
+    memcpy(meta, &now, sizeof(time_t));
+    SPIFFS_fupdate_meta(&fs, fd, meta);
+
     if (SPIFFS_close(&fs, fd) < 0) {
         res = spiffs_result(fs.err_code);
         errno = res;
@@ -677,6 +693,7 @@ void vfs_spiffs_register() {
     );
 
     if (res < 0) {
+        syslog(LOG_ERR, "spiffs%d error %d", res);
         if (fs.err_code == SPIFFS_ERR_NOT_A_FS) {
             syslog(LOG_ERR, "spiffs%d no file system detect, formating", unit);
             SPIFFS_unmount(&fs);

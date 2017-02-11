@@ -274,7 +274,7 @@ static int os_ls (lua_State *L) {
         // Get file stat
         statok = stat(tpath, &sb);
 
-    	if ((statok == 0) && (on_fat)) {
+    	if (statok == 0) {
     		// on fat fs, get file time
 			tm_info = localtime(&sb.st_mtime);
 			strftime(tbuffer, 80, "%d/%m/%Y %R", tm_info);
