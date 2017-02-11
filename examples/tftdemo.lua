@@ -30,9 +30,9 @@ tftdemo = {
 		tft.FONT_DEFAULT,
 		tft.FONT_7SEG,
 		tft.FONT_UBUNTU16,
-		"/@font/DejaVuSans18.fon",
-		"/@font/DotMatrix_M.fon",
-		"/@font/OCR_A_Extended_M.fon"
+		tft.FONT_COMIC24,
+		tft.FONT_TOONEY32,
+		tft.FONT_MINYA24
 	},
 	-- images used in this demo {file_name, width, height}
 	-- width & height are needed only for raw images
@@ -115,32 +115,38 @@ function tftdemo.dispFont(sec)
 		y = starty
 		x = 0
 		local i,j
-		for i=1, 3, 1 do
-			for j=1, #tftdemo.fontnames, 1 do
-				tft.setcolor(math.random(0xFFFF))
-				tft.setfont(tftdemo.fontnames[j])
-				if j ~= tft.FONT_7SEG then
-					tft.write(x,y,tx)
-				else
-					tft.write(x,y,"-12.45/")
-				end
-				y = y + tft.getfontheight()
-				if y > (tftdemo.maxy-tft.getfontheight()) then
-					break
-				end
-			end
-			y = y + 2
-			if y > (tftdemo.maxy-tft.getfontheight()) then
-				break
-			end
-			if i == 1 then 
+		i = 0
+		while y < tftdemo.maxy do
+			if i == 0 then 
+				x = 0
+			elseif i == 1 then 
 				x = tft.CENTER
-			end
-			if i == 2 then
+			elseif i == 2 then
 				x = tft.RIGHT
 			end
+			i = i + 1
+			if i > 2 then
+				i = 0
+			end
+			
+			for j=1, #tftdemo.fontnames, 1 do
+				tft.setcolor(math.random(0xFFFF))
+				if tftdemo.fontnames[j] == tft.FONT_7SEG then
+					tft.setfont(tftdemo.fontnames[j], 8, 1)
+					tft.write(x,y,"-12.45/")
+				else
+					tft.setfont(tftdemo.fontnames[j])
+					tft.write(x,y,tx)
+				end
+				y = y + 2 + tft.getfontheight()
+				if y > (tftdemo.maxy-tft.getfontheight()) then
+					y = tftdemo.maxy
+				end
+			end
 		end
-		if tftdemo.touched() then break end
+		if tftdemo.touched() then
+			break
+		end
 	end
 end
 
@@ -153,7 +159,7 @@ function tftdemo.fontDemo(sec, rot)
 	tftdemo.header(tx, true)
 
 	tx = "ESP32-Lua"
-	local x, y, color, i
+	local x, y, color, i, l, w
 	local n = os.clock() + sec
 	while os.clock() < n do
 		if rot == 1 then
@@ -162,12 +168,16 @@ function tftdemo.fontDemo(sec, rot)
 		for i=1, #tftdemo.fontnames, 1 do
 			if (rot == 0) or (i ~= 1) then
 				tft.setcolor(math.random(0xFFFF))
-				tft.setfont(tftdemo.fontnames[i])
 				x = math.random(tftdemo.maxx-8)
-				y = math.random(tftdemo.miny, tftdemo.maxy-tft.getfontheight())
-				if i ~= 2 then
+				if tftdemo.fontnames[j] == tft.FONT_7SEG then
+					tft.setfont(tftdemo.fontnames[i])
+					y = math.random(tftdemo.miny, tftdemo.maxy-tft.getfontheight())
 					tft.write(x,y,tx)
 				else
+					l = math.random(6,20)
+					w = math.random(1,l // 3)
+					tft.setfont(tftdemo.fontnames[i], l, w)
+					y = math.random(tftdemo.miny, tftdemo.maxy-tft.getfontheight())
 					tft.write(x,y,"-12.45/")
 				end
 			end
@@ -405,14 +415,14 @@ function tftdemo.imageDemo(sec)
 	tft.setcolor(tft.GREEN)
 	if (tftdemo.maxx > tftdemo.maxy) then
 		-- landscape
-		if os.exists(tftdemo.images["lraw"][1]) ~= 0 then
+		if os.exists(tftdemo.images["lraw"][1]) then
 			tft.image(tft.CENTER,tft.CENTER,tftdemo.images["lraw"][2],tftdemo.images["lraw"][3],tftdemo.images["lraw"][1])
 		else
 			tft.write(tft.CENTER,tft.CENTER,"Image not found")
 		end
 	else
 		-- portrait
-		if os.exists(tftdemo.images["praw"][1]) ~= 0 then
+		if os.exists(tftdemo.images["praw"][1]) then
 			tft.image(tft.CENTER,tft.CENTER,tftdemo.images["praw"][2],tftdemo.images["praw"][3],tftdemo.images["praw"][1])
 		else
 			tft.write(tft.CENTER,tft.CENTER,"Image not found")
@@ -422,8 +432,8 @@ function tftdemo.imageDemo(sec)
 	tmr.delay(2)
 
 	tftdemo.header("JPG IMAGE")
-	if os.exists(tftdemo.images["jpg"][1]) ~= 0 then
-		tft.jpgimage(0,tftdemo.miny+2,1,tftdemo.images["jpg"][1])
+	if os.exists(tftdemo.images["jpg"][1]) then
+		tft.jpgimage(0,tftdemo.miny+2,0,tftdemo.images["jpg"][1])
 	else
 		tft.write(tft.CENTER,tft.CENTER,"Image not found")
 	end
@@ -431,7 +441,7 @@ function tftdemo.imageDemo(sec)
 	tmr.delay(2)
 
 	tftdemo.header("BMP IMAGE")
-	if os.exists(tftdemo.images["bmp"][1]) ~= 0 then
+	if os.exists(tftdemo.images["bmp"][1]) then
 		tft.bmpimage(0, tftdemo.miny+2, tftdemo.images["bmp"][1])
 	else
 		tft.write(tft.CENTER,tft.CENTER,"Image not found")
