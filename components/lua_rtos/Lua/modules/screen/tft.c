@@ -2714,7 +2714,7 @@ static int tft_getline( lua_State* L )
 		luaL_addlstring(&b, (const char *)tft_line, len);
 	}
 	else {
-		for (int i = 0; i < len; i+=2) {
+		for (int i = 0; i < (len*2); i+=2) {
 			if (out_type == 1) {
 				sprintf(hbuf, "%04x;", (tft_line[i] << 8) | tft_line[i+1]);
 				luaL_addstring(&b, hbuf);
@@ -3065,18 +3065,15 @@ static int tft_set_speed(lua_State *L) {
 	int speed = spi_get_speed(DISP_SPI);
 
 	if (lua_gettop(L) > 0) {
-		speed = luaL_checkinteger(L, 1) * 1000;
-		if (speed < 8000) speed = 8000;
-		if (speed > 40000) speed = 40000;
-		int spd = 80000 / speed;
-		speed = 80000 / spd;
-		spi_set_speed(DISP_SPI, speed);
+		speed = luaL_checkinteger(L, 1);
+		if (speed < 1000) speed = 1000;
+		else if (speed > 80000) speed = 80000;
 		if (speed != spi_get_speed(DISP_SPI)) {
 			spi_set_speed(DISP_SPI, speed);
 		}
 	}
 
-	lua_pushinteger(L, speed / 1000);
+	lua_pushinteger(L, spi_get_speed(DISP_SPI) / 1000);
 
 	return 1;
 }

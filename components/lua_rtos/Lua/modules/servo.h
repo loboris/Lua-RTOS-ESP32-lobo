@@ -1,5 +1,6 @@
 /*
- * Lua RTOS, vfs register functions
+ * Lua RTOS, servo wrapper
+ *
  *
  * Copyright (C) 2015 - 2016
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
@@ -19,7 +20,7 @@
  *
  * The author disclaim all warranties with regard to this
  * software, including all implied warranties of merchantability
- * and fitness.  In no event shall the author be liable for any
+ * and fitness.  In no servo shall the author be liable for any
  * special, indirect or consequential damages or any damages
  * whatsoever resulting from loss of use, data or profits, whether
  * in an action of contract, negligence or other tortious action,
@@ -27,6 +28,37 @@
  * this software.
  */
 
-void vfs_net_register();
-void vfs_spiffs_register();
-void vfs_tty_register();
+#ifndef LSERVO_H
+#define	LSERVO_H
+
+#include <stdint.h>
+
+#include <drivers/servo.h>
+
+/*
+ * Servo fundamentals
+ *
+ * Each 20 ms an active-high digital pulse controls the position, so
+ * signal has a frequency of 50 hz.
+ *
+ * The pulse width goes from 1 ms to 2 ms, and 1.5 ms is the center of
+ * range.
+ *
+ */
+
+// Servo types
+#define SERVO_POSITIONAL 0
+#define SERVO_CONTINUOUS 1
+
+// This constants define the duty cycles needed for each servo direction:
+// stop, clockwise, or counter clock wise
+#define SERVO_STOP_DUTY 0.075
+#define SERVO_CW_DUTY   0.06
+#define SERVO_CCW_DUTY  0.08
+
+// User data for this module
+typedef struct {
+	servo_instance_t *instance;
+} servo_userdata;
+
+#endif	/* LSERVO_H */

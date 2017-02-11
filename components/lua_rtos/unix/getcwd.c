@@ -27,6 +27,7 @@
  * this software.
  */
 
+#include "lauxlib.h"
 #include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>

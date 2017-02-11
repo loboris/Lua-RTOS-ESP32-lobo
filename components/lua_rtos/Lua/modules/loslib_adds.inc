@@ -226,47 +226,65 @@ static int os_ls (lua_State *L) {
     struct dirent *ent;
     char type;
     char size[9];
-    char cpath[PATH_MAX];
-    char tpath[PATH_MAX];
-    char tbuffer[250];
+    char cpath[255];
+    char tpath[255];
+    char tbuffer[80];
     struct stat sb;
     struct tm *tm_info;
+    char *lpath = NULL;
+    char *ppath = NULL;
+    int statok;
+    int on_fat = 0;
 
     // If path is not present get the current directory as path
     if (!path) {
-        if (!getcwd(cpath, PATH_MAX)) {
+        if (!getcwd(cpath, 255)) {
             return luaL_fileresult(L, 0, cpath);
-        }    
-        
+        }
         path = cpath;
     }
 
+    lpath = mount_resolve_to_logical(path);
+    ppath = mount_resolve_to_physical(lpath);
+
+    if ((strcmp(ppath, "/spiffs/") != 0) && (strcmp(ppath, "/fat/") != 0)) {
+    	// Not on root
+        statok = stat(lpath, &sb);
+        if (( statok != 0) || (!S_ISDIR(sb.st_mode))) {
+            return luaL_error(L, "Not a Directory");
+        }
+    }
+    if (strstr(ppath, "/fat/") == ppath) on_fat = 1;
+
+    free(ppath);
+
     // Open directory
-    dir = opendir(path);
+    dir = opendir(lpath);
     if (!dir) {
         return luaL_fileresult(L, 0, path);
     }
 
-    //tty_lock();
-    
-    // Read entries
+    // Read directory entries
     while ((ent = readdir(dir)) != NULL) {
-        strcpy(tpath, path);
+    	sprintf(tpath, lpath);
         strcat(tpath,"/");
         strcat(tpath,ent->d_name);
         tbuffer[0] = '\0';
 
-        if (strcmp((const char *)mount_device(tpath),"fat") == 0) {
-        	if (stat(tpath, &sb) == 0) {
-				tm_info = localtime(&sb.st_atime);
-				strftime(tbuffer, 250, "%c", tm_info);
-            }
+        // Get file stat
+        statok = stat(tpath, &sb);
+
+    	if ((statok == 0) && (on_fat)) {
+    		// on fat fs, get file time
+			tm_info = localtime(&sb.st_mtime);
+			strftime(tbuffer, 80, "%d/%m/%Y %R", tm_info);
         }
 
-        type = 'd';
+    	type = 'd';
         if (ent->d_type == DT_REG) {
             type = 'f';
-            sprintf(size,"%8d", ent->d_fsize);
+            if (statok) strcpy(size, "       ?");
+            else sprintf(size,"%8d", (int)sb.st_size);
         //} else if (ent->d_type == DT_LNK) {
         //    type = 'l';
         //    sprintf(size,"%8d", ent->d_fsize);
@@ -283,8 +301,9 @@ static int os_ls (lua_State *L) {
     }
 
     //tty_unlock();
-    
     closedir(dir);
+
+    free(lpath);
 
     return 0;    
 }

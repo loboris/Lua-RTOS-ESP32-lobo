@@ -8,7 +8,7 @@
 #include <limits.h>
 #include <stdint.h>
 
-#define LUA_OS_VER "beta 0.1"
+#define LUA_OS_VER "beta 0.2 (LoBo)"
 	
 #if LUA_USE_LUA_LOCK
 	void LuaLock(lua_State *L);

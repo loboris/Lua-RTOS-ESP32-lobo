@@ -50,7 +50,7 @@
 #include <sys/mount.h>
 #include <sys/list.h>
 #include <sys/fcntl.h>
-#include <dirent.h>
+#include <sys/dirent.h>
 
 static int IRAM_ATTR vfs_spiffs_open(const char *path, int flags, int mode);
 static size_t IRAM_ATTR vfs_spiffs_write(int fd, const void *data, size_t size);
@@ -381,7 +381,6 @@ static off_t IRAM_ATTR vfs_spiffs_lseek(int fd, off_t size, int mode) {
 static int IRAM_ATTR vfs_spiffs_stat(const char * path, struct stat * st) {
 	int fd;
 	int res;
-
 	fd = vfs_spiffs_open(path, 0, 0);
 	res = vfs_spiffs_fstat(fd, st);
 	vfs_spiffs_close(fd);
@@ -471,7 +470,7 @@ static struct dirent* vfs_spiffs_readdir(DIR* pdir) {
     	    if (mount_readdir("spiffs", dir->path, 0, mdir)) {
     	    	strlcpy(ent->d_name, mdir, PATH_MAX);
     	        ent->d_type = DT_DIR;
-    	        ent->d_fsize = 0;
+    	        //ent->d_fsize = 0;
     	        dir->read_mount = 1;
 
     	        return ent;
@@ -549,7 +548,7 @@ static struct dirent* vfs_spiffs_readdir(DIR* pdir) {
             continue;
         }
 
-        ent->d_fsize = pe->size;
+        //ent->d_fsize = pe->size;
 
         strlcpy(ent->d_name, fn, MAXNAMLEN);
 

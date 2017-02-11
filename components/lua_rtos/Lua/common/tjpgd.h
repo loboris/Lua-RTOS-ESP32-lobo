@@ -20,9 +20,9 @@ extern "C" {
 
 #include "integer.h"
 
-typedef int16_t SHORT;
-typedef int32_t LONG;
-typedef int32_t	INT;
+//typedef int16_t SHORT;
+//typedef int32_t LONG;
+//typedef int32_t	INT;
 
 /* Error code */
 typedef enum {

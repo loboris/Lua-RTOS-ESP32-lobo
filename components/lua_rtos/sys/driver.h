@@ -50,8 +50,9 @@
 #define SENSOR_DRIVER_ID 10
 #define OWIRE_DRIVER_ID  11
 #define MQTT_DRIVER_ID   12
-#define WS2812_DRIVER_ID 13
-#define RMT_DRIVER_ID    14
+#define SERVO_DRIVER_ID  13
+#define WS2812_DRIVER_ID 14
+#define RMT_DRIVER_ID    15
 
 #define GPIO_DRIVER driver_get_by_name("gpio")
 #define UART_DRIVER driver_get_by_name("uart")
@@ -61,6 +62,7 @@
 #define ADC_DRIVER driver_get_by_name("adc")
 #define MQTT_DRIVER driver_get_by_name("mqtt")
 #define OWIRE_DRIVER driver_get_by_name("owire")
+#define SERVO_DRIVER driver_get_by_name("servo")
 #define WS2812_DRIVER driver_get_by_name("ws2812")
 #define RMT_DRIVER driver_get_by_name("rmt")
 

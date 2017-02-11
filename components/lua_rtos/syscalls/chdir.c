@@ -27,6 +27,7 @@
  * this software.
  */
 
+#include "lauxlib.h"
 #include <fcntl.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -44,7 +45,7 @@ int chdir(const char *path) {
     struct stat statb;
     char *ppath;
     char *lpath;
-	int fd;
+    int statok;
 
     if (strlen(path) > PATH_MAX) {
         errno = ENAMETOOLONG;
@@ -58,21 +59,13 @@ int chdir(const char *path) {
     	return 0;
     }
 
-    // Check for path existence
-    if ((fd = open(ppath, O_RDONLY)) == -1) {
-    	errno = ENOTDIR;
+    if (strcmp(ppath, "/fat/") == 0) {
     	free(ppath);
-        return -1;
+    	strncpy(currdir, "/sd", PATH_MAX);
+    	return 0;
     }
 
-    // Check that path is a directory
-    if (fstat(fd, &statb) || !S_ISDIR(statb.st_mode)) {
-    		free(ppath);
-            errno = ENOTDIR;
-            close(fd);
-            return -1;
-    }
-
+    // Not on root
     lpath = mount_resolve_to_logical(ppath);
     if (!lpath) {
     	errno = ENOTDIR;
@@ -81,12 +74,20 @@ int chdir(const char *path) {
     	return -1;
     }
 
+    // Check if the path is a directory
+	statok = stat(lpath, &statb);
+    if (( statok != 0) || (!S_ISDIR(statb.st_mode))) {
+    		free(ppath);
+        	free(lpath);
+            errno = ENOTDIR;
+            return -1;
+    }
+
+    // Set current directory to logical path
     strncpy(currdir, lpath, PATH_MAX);
 
     free(lpath);
 	free(ppath);
-
-	close(fd);
 
     return 0;
 }

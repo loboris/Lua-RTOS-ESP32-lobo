@@ -49,6 +49,11 @@
 #include <drivers/cpu.h>
 #include <drivers/uart.h>
 
+#include "esp_vfs_fat.h"
+#include "driver/sdmmc_host.h"
+#include "driver/sdmmc_defs.h"
+#include "sdmmc_cmd.h"
+
 extern void _syscalls_init();
 extern void _pthread_init();
 extern void _signal_init();
@@ -80,7 +85,7 @@ void *_sys_tests(void *arg) {
 void _sys_init() {
 	// TO DO: do this only if RTC is not set
 	struct timeval tv;
-
+	//get_fattime();
 	esp_log_level_set("*", ESP_LOG_ERROR);
 
 	// Disable hardware modules modules
@@ -102,7 +107,7 @@ void _sys_init() {
 
     _signal_init();
 
-	//console_clear();
+	console_clear();
 
 	esp_vfs_unregister("/dev/uart");
 	vfs_tty_register();
@@ -112,7 +117,7 @@ void _sys_init() {
     printf("/_____________\\\r\n");
     printf("W H I T E C A T\r\n\r\n");
 
-    printf("Lua RTOS %s build %d Copyright (C) 2015 - 2016 whitecatboard.org\r\n", LUA_OS_VER, BUILD_TIME);
+    printf("Lua RTOS %s build %d Copyright (C) 2015 - 2017 whitecatboard.org\r\n", LUA_OS_VER, BUILD_TIME);
 
 	#ifdef RUN_TESTS
 		// Create and run a pthread for tests
@@ -158,9 +163,48 @@ void _sys_init() {
     #endif
 
 	#if USE_FAT
-    	vfs_fat_register();
+        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
 
-    	if (mount_is_mounted("fat")) {
+		#if SD_1BITMODE
+        // Use 1-line SD mode
+        host.flags = SDMMC_HOST_FLAG_1BIT;
+		#endif
+        // This initializes the slot without card detect (CD) and write protect (WP) signals.
+        // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
+        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+
+        // Options for mounting the filesystem.
+        // If format_if_mount_failed is set to true, SD card will be partitioned and formatted
+        // in case when mounting fails.
+        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+			#if SD_FORMAT
+        	.format_if_mount_failed = true,
+			#else
+			.format_if_mount_failed = false,
+			#endif
+			.max_files = SD_MAXFILES
+        };
+
+        // Use settings defined above to initialize SD card and mount FAT filesystem.
+        // Note: esp_vfs_fat_sdmmc_mount is an all-in-one convenience function.
+        // Please check its source code and implement error recovery when developing
+        // production applications.
+        sdmmc_card_t* card;
+        esp_err_t ret = esp_vfs_fat_sdmmc_mount("/fat", &host, &slot_config, &mount_config, &card);
+        if (ret != ESP_OK) {
+            if (ret == ESP_FAIL) {
+            	syslog(LOG_WARNING, "Failed to mount filesystem. May be not formated");
+            } else {
+            	syslog(LOG_WARNING, "Failed to initialize the card (%d). Check SD physical connection.", ret);
+            }
+        }
+        else {
+			// Card has been initialized, print its properties
+			sdmmc_card_print_info(stdout, card);
+	        mount_set_mounted("fat", 1);
+        }
+
+        if (mount_is_mounted("fat")) {
             // Redirect console messages to /log/messages.log ...
             closelog();
             syslog(LOG_INFO, "redirecting console messages to file system ...");

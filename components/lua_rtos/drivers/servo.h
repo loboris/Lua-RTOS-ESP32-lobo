@@ -1,5 +1,5 @@
 /*
- * Lua RTOS, vfs register functions
+ * Lua RTOS, servo driver
  *
  * Copyright (C) 2015 - 2016
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
@@ -27,6 +27,39 @@
  * this software.
  */
 
-void vfs_net_register();
-void vfs_spiffs_register();
-void vfs_tty_register();
+#ifndef _SERVO_H_
+#define _SERVO_H_
+
+#include "luartos.h"
+
+#if USE_SERVO
+
+#include <sys/driver.h>
+
+// Standard servo middle position, expressed in pulse width (usecs)
+#define SERVO_MID_WIDTH 1500
+
+// Servo instance
+typedef struct servo_instance {
+	int8_t pin;
+	double offset;
+	double width;
+	double angle;
+	int8_t pwm_channel;
+} servo_instance_t;
+
+// Servo errors
+#define SERVO_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(SERVO_DRIVER_ID) |  0)
+#define SERVO_ERR_NOT_ENOUGH_MEMORY		   (DRIVER_EXCEPTION_BASE(SERVO_DRIVER_ID) |  1)
+#define SERVO_ERR_INVALID_TYPE			   (DRIVER_EXCEPTION_BASE(SERVO_DRIVER_ID) |  2)
+#define SERVO_ERR_INVALID_OPERATION		   (DRIVER_EXCEPTION_BASE(SERVO_DRIVER_ID) |  3)
+
+// Driver functions
+driver_error_t *servo_setup(int8_t pin, double offset, double width, servo_instance_t **instance);
+driver_error_t *servo_write(servo_instance_t *instance, double angle);
+driver_error_t *servo_set_offset(servo_instance_t *instance, double offset);
+driver_error_t *servo_set_width(servo_instance_t *instance, double width);
+
+#endif
+
+#endif /* _SERVO_H_ */

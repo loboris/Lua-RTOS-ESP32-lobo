@@ -102,21 +102,35 @@ menu "Lua RTOS"
 	  	default n
 	  	help
 	  		Select for enable FAT file system support. Enabling this implies that you have an SD Card
-	  		appropriately connected to your ESP32 board.
+	  		appropriately connected to your ESP32 board. Uses ESP32 SDMMC interface.
 
-		config LUA_RTOS_SD_SPI
+	  choice LUA_RTOS_SD_MODE
 		depends on LUA_RTOS_USE_FAT
-	    int "SDCARD SPI port"
-	    range 1 3
-	    default 2
+		prompt "SDCARD data mode"
+		default LUA_RTOS_SD_MODE_1BIT
 		help
-			Select the SPI port number where SD Card is attached
-	
-		config LUA_RTOS_SD_CS
-		depends on LUA_RTOS_USE_FAT
-	    int "SDCARD SPI CS GPIO number"
-	    range 0 39
-	    default 15
+			Select 1 or 4 bit SDCARD data mode (SPI or SD mode).
+
+		config LUA_RTOS_SD_MODE_1BIT
+		bool "1BIT 0"
+			
+		config LUA_RTOS_SD_MODE_4BIT
+		bool "4BIT 1"
+
+	  endchoice
+
+	  config LUA_RTOS_SD_FORMAT
+	  depends on LUA_RTOS_USE_FAT
+  	  bool "Format SDCARD if mount fail"
+  	  default n
+	  help
+		  If SDCARD is detected but cannot be mounted, try to format it.
+
+	  config LUA_RTOS_SD_MAXFILES
+	  depends on LUA_RTOS_USE_FAT
+      int "Maximum number of opened files"
+      range 3 15
+      default 5
   endmenu
   endmenu
   
