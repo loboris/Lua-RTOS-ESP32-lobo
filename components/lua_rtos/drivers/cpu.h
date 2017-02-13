@@ -31,6 +31,7 @@
 #define	CPU_H
 
 #include <stdint.h>
+#include <sys/types.h>
 
 /*
  * ----------------------------------------------------------------
@@ -320,6 +321,13 @@ typedef uint64_t gpio_port_mask_t;
 #define CPU_PWM0_ALL 0b1111111111111111
 
 #endif
+
+#define SLEEP_CHECK_ID 0x5A1C
+uint64_t _speep_calib;
+time_t sleep_start_time;
+uint32_t sleep_seconds;
+uint16_t sleep_check;
+uint32_t boot_count;
 
 void _cpu_init();
 int cpu_revission();

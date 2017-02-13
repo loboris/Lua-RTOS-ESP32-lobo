@@ -65,10 +65,22 @@ static int os_sleep(lua_State *L) {
 	return 0;
 }
 
+static int os_set_sleep_calib(lua_State *L) {
+	float perc = luaL_checknumber(L, 1);
+	if (((perc > -1) && (perc < 1)) || ((perc < -20) || (perc > 20))) {
+
+	}
+	uint64_t uperc = (uint64_t)(perc * 10000.0);
+
+	_speep_calib = 1000000LL + uperc;
+	lua_pushinteger(L, _speep_calib);
+	return 1;
+}
+
 static int os_reset_reason(lua_State *L) {
 	//int reason = cpu_reset_reason();
 
-	lua_pushinteger(L, 0); 
+	lua_pushinteger(L, 0);
 	
 	return 1;
 }

@@ -47,6 +47,10 @@
   * FAT FS on SDCARD changed to use esp-idf SDMMC and fat drivers
   * sd card can be connected in 1-line (spi) or 4-line (sd) mode
 
+* sleep
+  * os.sleep() function improved, time is preserved after sleep
+  * boot count added and reported at start
+
 ### Other
 
 Added some documentations, lua examples, tools...

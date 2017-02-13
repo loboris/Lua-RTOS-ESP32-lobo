@@ -54,7 +54,7 @@
 #include "driver/sdmmc_defs.h"
 #include "sdmmc_cmd.h"
 
-extern void _syscalls_init();
+//extern void _syscalls_init();
 extern void _pthread_init();
 extern void _signal_init();
 extern void _mtx_init();
@@ -83,18 +83,40 @@ void *_sys_tests(void *arg) {
 #endif
 
 void _sys_init() {
-	// TO DO: do this only if RTC is not set
-	struct timeval tv;
-	//get_fattime();
 	esp_log_level_set("*", ESP_LOG_ERROR);
 
 	// Disable hardware modules modules
 	periph_module_disable(PERIPH_LEDC_MODULE);
 
-	tv.tv_sec = BUILD_TIME;
-	tv.tv_usec = 0;
+	if (sleep_check != SLEEP_CHECK_ID) boot_count = 0;
+	else boot_count++;
+	struct timeval tv;
+    struct tm timeinfo;
+	time_t now;
+	time(&now);
+	if ((sleep_check == SLEEP_CHECK_ID) && (sleep_start_time+sleep_seconds) > now) {
+		now = sleep_start_time+sleep_seconds;
+		sleep_check = 0;
+		printf("\r\nSleep time: %u sec\r\n", sleep_seconds);
+    	localtime_r(&sleep_start_time, &timeinfo);
+		printf("      From: %s", asctime(&timeinfo));
+    	localtime_r(&now, &timeinfo);
+		printf("        To: %s", asctime(&timeinfo));
+	}
 
+	localtime_r(&now, &timeinfo);
+    // Is time set? If not, tm_year will be (1970 - 1900).
+    if (timeinfo.tm_year < (2017 - 1900)) {
+        // Time is not set yet
+    	now = BUILD_TIME;
+    	localtime_r(&now, &timeinfo);
+    	printf("\r\nTime is not set, setting to build time: %s", asctime(&timeinfo));
+    }
+    tv.tv_sec = now;
+	tv.tv_usec = 0;
 	settimeofday(&tv, NULL);
+
+	if (boot_count) printf("Boot count: %u\r\n", boot_count);
 
 	// Init important things for Lua RTOS
 	_clock_init();
@@ -112,7 +134,7 @@ void _sys_init() {
 	esp_vfs_unregister("/dev/uart");
 	vfs_tty_register();
 
-	printf("  /\\       /\\\r\n");
+	printf("\r\n  /\\       /\\\r\n");
     printf(" /  \\_____/  \\\r\n");
     printf("/_____________\\\r\n");
     printf("W H I T E C A T\r\n\r\n");

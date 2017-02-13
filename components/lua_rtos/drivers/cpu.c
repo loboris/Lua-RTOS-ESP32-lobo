@@ -39,6 +39,7 @@
 #include <sys/syslog.h>
 #include <sys/delay.h>
 #include <sys/status.h>
+#include <time.h>
 
 #include <drivers/gpio.h>
 #include <drivers/uart.h>
@@ -80,8 +81,15 @@ static const char *pin_names[] = {
 };
 #endif
 
-extern void sdk_system_restart_in_nmi(void);
+//extern void sdk_system_restart_in_nmi(void);
 extern uint8_t sdk_rtc_get_reset_reason(void);
+
+uint64_t _speep_calib = 1000000LL;
+RTC_DATA_ATTR time_t sleep_start_time = 0;
+RTC_DATA_ATTR uint32_t sleep_seconds = 0;
+RTC_DATA_ATTR uint16_t sleep_check;
+RTC_DATA_ATTR uint32_t boot_count;
+
 
 void _cpu_init() {
 }
@@ -321,11 +329,14 @@ void cpu_sleep(int seconds) {
 	uart_stop(-1);
 
 	// Put ESP32 in deep sleep mode
-	if (status_get(STATUS_NEED_RTC_SLOW_MEM)) {
+	//if (status_get(STATUS_NEED_RTC_SLOW_MEM)) {
 	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
-	}
+	//}
 
-    esp_deep_sleep(seconds * 1000000LL);
+	time(&sleep_start_time);
+	sleep_seconds = seconds;
+	sleep_check = SLEEP_CHECK_ID;
+	esp_deep_sleep((uint64_t)(seconds * _speep_calib));
 }
 
 void cpu_reset() {
