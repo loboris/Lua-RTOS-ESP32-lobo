@@ -37,6 +37,8 @@
 #include <stdio.h>
 #include <errno.h>
 
+extern char *getcwd(char *pt, size_t size);
+
 // Mount device structure
 struct mountd {
     const char *device;

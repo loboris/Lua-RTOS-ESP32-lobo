@@ -38,6 +38,15 @@
   * support for 1-wire devices on multiple 1-wire buses
   * DS1820 temperature sensors support (including parasite power support)
 
+* spiffs
+  * updated to latest spiffs commits
+  * added support for file timestamp
+  * added used & total info in os.ls()
+
+* sd card support & fat fs
+  * FAT FS on SDCARD changed to use esp-idf SDMMC and fat drivers
+  * sd card can be connected in 1-line (spi) or 4-line (sd) mode
+
 ### Other
 
 Added some documentations, lua examples, tools...

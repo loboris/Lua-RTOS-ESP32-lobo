@@ -281,8 +281,8 @@ driver_error_t *wifi_setup(wifi_mode_t mode, char *ssid, char *password) {
 
 	    memset(&wifi_config, 0, sizeof(wifi_config_t));
 
-	    strncpy(wifi_config.sta.ssid, ssid, 32);
-	    strncpy(wifi_config.sta.password, password, 64);
+	    strncpy ((char *)wifi_config.sta.ssid, ssid, 32);
+	    strncpy((char *)wifi_config.sta.password, password, 64);
 
 	    // Set config
 	    if ((error = wifi_check_error(esp_wifi_set_config(ESP_IF_WIFI_STA, &wifi_config)))) return error;

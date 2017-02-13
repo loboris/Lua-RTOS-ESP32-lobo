@@ -19,6 +19,7 @@
 #if !defined(MQTTPACKET_H)
 #define MQTTPACKET_H
 
+#include <stdbool.h>
 #include "Socket.h"
 #if defined(OPENSSL)
 #include "SSLSocket.h"

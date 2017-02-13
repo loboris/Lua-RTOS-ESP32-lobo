@@ -73,6 +73,12 @@ typedef struct {
 	uint8_t is_dir;
 } vfs_spiffs_file_t;
 
+typedef struct {
+	time_t mtime;
+	time_t ctime;
+	time_t atime;
+	uint8_t spare[SPIFFS_OBJ_META_LEN - (sizeof(time_t)*3)];
+} spiffs_metadata_t;
 
 static spiffs fs;
 static struct list files;
@@ -80,6 +86,14 @@ static struct list files;
 static u8_t *my_spiffs_work_buf;
 static u8_t *my_spiffs_fds;
 static u8_t *my_spiffs_cache;
+
+
+void spiffs_fs_stat(uint32_t *total, uint32_t *used) {
+	if (SPIFFS_info(&fs, total, used) != SPIFFS_OK) {
+		*total = 0;
+		*used = 0;
+	}
+}
 
 /*
  * Test if path corresponds to a directory. Return 0 if is not a directory,
@@ -140,11 +154,19 @@ static int spiffs_result(int res) {
     }
 }
 
+static int IRAM_ATTR vfs_spiffs_getstat(spiffs_file fd, spiffs_stat *st, spiffs_metadata_t *metadata) {
+    int res = SPIFFS_fstat(&fs, fd, st);
+    if (res == SPIFFS_OK) {
+        // Get file's time information from metadata
+        memcpy(metadata, st->meta, sizeof(spiffs_metadata_t));
+	}
+    return res;
+}
+
 static int IRAM_ATTR vfs_spiffs_open(const char *path, int flags, int mode) {
-	int fd, result = 0;
-	u8_t meta[SPIFFS_OBJ_META_LEN];
-    time_t now = time(NULL); // Get the system time
-    memcpy(meta, &now, sizeof(time_t));
+	int fd, result = 0, exists = 0;
+	spiffs_stat stat;
+	spiffs_metadata_t meta;
 
 	// Allocate new file
 	vfs_spiffs_file_t *file = calloc(1, sizeof(vfs_spiffs_file_t));
@@ -160,6 +182,9 @@ static int IRAM_ATTR vfs_spiffs_open(const char *path, int flags, int mode) {
     	errno = res;
     	return -1;
     }
+
+    // Check if file exists
+    if (SPIFFS_stat(&fs, path, &stat) == SPIFFS_OK) exists = 1;
 
     // Make a copy of path
 	strlcpy(file->path, path, MAXNAMLEN);
@@ -218,7 +243,14 @@ static int IRAM_ATTR vfs_spiffs_open(const char *path, int flags, int mode) {
     	return -1;
     }
 
-    SPIFFS_fupdate_meta(&fs, file->spiffs_file, meta);
+    res = vfs_spiffs_getstat(file->spiffs_file, &stat, &meta);
+	if (res == SPIFFS_OK) {
+		// update file's time information
+		meta.atime = time(NULL); // Get the system time to access time
+		if (!exists) meta.ctime = meta.atime;
+		if (spiffs_mode != SPIFFS_RDONLY) meta.mtime = meta.atime;
+		SPIFFS_fupdate_meta(&fs, file->spiffs_file, &meta);
+	}
 
     return fd;
 }
@@ -290,8 +322,7 @@ static int IRAM_ATTR vfs_spiffs_fstat(int fd, struct stat * st) {
 	vfs_spiffs_file_t *file;
     spiffs_stat stat;
 	int res;
-	time_t ftime;
-
+	spiffs_metadata_t meta;
 
     res = list_get(&files, fd, (void **)&file);
     if (res) {
@@ -299,34 +330,32 @@ static int IRAM_ATTR vfs_spiffs_fstat(int fd, struct stat * st) {
 		return -1;
     }
 
-	// Set block size for this file system
+    // Set block size for this file system
     st->st_blksize = SPIFFS_LOG_PAGE_SIZE;
 
-    // First test if it's a directory entry
-    if (file->is_dir) {
-        st->st_mode = S_IFDIR;
-        return 0;
-    }
-
-    // If is not a directory get file statistics
-    res = SPIFFS_stat(&fs, file->path, &stat);
+    // Get file/directory statistics
+    res = vfs_spiffs_getstat(file->spiffs_file, &stat, &meta);
     if (res == SPIFFS_OK) {
+        // Set file's time information from metadata
+        st->st_mtime = meta.mtime;
+        st->st_ctime = meta.ctime;
+        st->st_atime = meta.atime;
+
     	st->st_size = stat.size;
 
 	} else {
+        st->st_mtime = 0;
+        st->st_ctime = 0;
+        st->st_atime = 0;
 		st->st_size = 0;
-	    res = spiffs_result(fs.err_code);
-    }
-
-    st->st_mode = S_IFREG;
-
-    if (res < 0) {
-    	errno = res;
+	    errno = spiffs_result(fs.err_code);
+		printf("SPIFFS_STAT: error %d\r\n", res);
     	return -1;
     }
 
-    memcpy(&ftime, &stat.meta, sizeof(time_t));
-    st->st_mtime = ftime;
+    // Test if it's a directory entry
+    if (file->is_dir) st->st_mode = S_IFDIR;
+    else st->st_mode = S_IFREG;
 
     return 0;
 }
@@ -405,7 +434,25 @@ static int IRAM_ATTR vfs_spiffs_unlink(const char *path) {
     strlcpy(npath, path, PATH_MAX);
 
     if (is_dir(path)) {
-	    // Add /. to path
+        // Check if  directory is empty
+    	int nument = 0;
+        DIR *dir = opendir(path);
+        if (dir) {
+            struct dirent *ent;
+			// Read directory entries
+			while ((ent = readdir(dir)) != NULL) {
+				nument++;
+			}
+        }
+        closedir(dir);
+
+        if (nument > 0) {
+        	// Directory not empty, cannot remove
+        	errno = ENOTEMPTY;
+        	return -1;
+        }
+
+    	// Add /. to path
 	    if (strcmp(path,"/") != 0) {
 	        strlcat(npath,"/.", PATH_MAX);
 	    }
@@ -440,6 +487,30 @@ static int IRAM_ATTR vfs_spiffs_rename(const char *src, const char *dst) {
 }
 
 static DIR* vfs_spiffs_opendir(const char* name) {
+	struct stat st;
+    char *lpath = mount_resolve_to_logical(name);
+    char *ppath = mount_resolve_to_physical(lpath);
+
+    if (strcmp(ppath, "/spiffs/") != 0) {
+    	// Not on root
+    	if (vfs_spiffs_stat(name, &st)) {
+    		// Not found
+    		free(lpath);
+    		free(ppath);
+    		errno = ENOENT;
+    		return NULL;
+        }
+    	if (!S_ISDIR(st.st_mode)) {
+    		// Not a directory
+    		free(lpath);
+    		free(ppath);
+    		errno = ENOTDIR;
+    		return NULL;
+        }
+    }
+	free(lpath);
+	free(ppath);
+
 	vfs_spiffs_dir_t *dir = calloc(1, sizeof(vfs_spiffs_dir_t));
 
 	if (!dir) {
@@ -481,7 +552,6 @@ static struct dirent* vfs_spiffs_readdir(DIR* pdir) {
     	    if (mount_readdir("spiffs", dir->path, 0, mdir)) {
     	    	strlcpy(ent->d_name, mdir, PATH_MAX);
     	        ent->d_type = DT_DIR;
-    	        //ent->d_fsize = 0;
     	        dir->read_mount = 1;
 
     	        return ent;
@@ -611,16 +681,17 @@ static int IRAM_ATTR vfs_spiffs_mkdir(const char *path, mode_t mode) {
         return -1;
     }
 
-	u8_t meta[SPIFFS_OBJ_META_LEN];
-    time_t now = time(NULL); // Get the system time
-    memcpy(meta, &now, sizeof(time_t));
-    SPIFFS_fupdate_meta(&fs, fd, meta);
-
     if (SPIFFS_close(&fs, fd) < 0) {
         res = spiffs_result(fs.err_code);
         errno = res;
         return -1;
     }
+
+	spiffs_metadata_t meta;
+	meta.atime = time(NULL); // Get the system time to access time
+	meta.ctime = meta.atime;
+	meta.mtime = meta.atime;
+	SPIFFS_update_meta(&fs, npath, &meta);
 
     return 0;
 }
@@ -652,6 +723,7 @@ void vfs_spiffs_register() {
     int unit = 0;
     int res = 0;
     int retries = 0;
+    int ready = 1;
 
     cfg.phys_addr 		 = SPIFFS_BASE_ADDR;
     cfg.phys_size 		 = SPIFFS_SIZE;
@@ -669,14 +741,16 @@ void vfs_spiffs_register() {
 
     my_spiffs_work_buf = malloc(cfg.log_page_size * 2);
     if (!my_spiffs_work_buf) {
-    	// TO DO: assert
+		syslog(LOG_ERR, "spiffs%d error allocating fs structures (1)", unit);
+		return;
     }
 
     int fds_len = sizeof(spiffs_fd) * 5;
     my_spiffs_fds = malloc(fds_len);
     if (!my_spiffs_fds) {
         free(my_spiffs_work_buf);
-    	// TO DO: assert
+		syslog(LOG_ERR, "spiffs%d error allocating fs structures (2)", unit);
+		return;
     }
 
     int cache_len = cfg.log_page_size * 5;
@@ -684,30 +758,47 @@ void vfs_spiffs_register() {
     if (!my_spiffs_cache) {
         free(my_spiffs_work_buf);
         free(my_spiffs_fds);
-    	// TO DO: assert
+		syslog(LOG_ERR, "spiffs%d error allocating fs structures (3)", unit);
+		return;
     }
 
-    res = SPIFFS_mount(
-            &fs, &cfg, my_spiffs_work_buf, my_spiffs_fds,
-            fds_len, my_spiffs_cache, cache_len, NULL
-    );
+    while (retries < 2) {
+		res = SPIFFS_mount(
+				&fs, &cfg, my_spiffs_work_buf, my_spiffs_fds,
+				fds_len, my_spiffs_cache, cache_len, NULL
+		);
 
-    if (res < 0) {
-        syslog(LOG_ERR, "spiffs%d error %d", res);
-        if (fs.err_code == SPIFFS_ERR_NOT_A_FS) {
-            syslog(LOG_ERR, "spiffs%d no file system detect, formating", unit);
-            SPIFFS_unmount(&fs);
-            res = SPIFFS_format(&fs);
-            if (res < 0) {
-                syslog(LOG_ERR, "spiffs%d format error",unit);
-            	// TO DO: assert
-            }
-        }
-    } else {
-        if (retries > 0) {
-        	// TO DO
-            //spiffs_mkdir_op("/.");
-        }
+		if (res < 0) {
+			if (fs.err_code == SPIFFS_ERR_NOT_A_FS) {
+				syslog(LOG_ERR, "spiffs%d no file system detected, formating...", unit);
+				SPIFFS_unmount(&fs);
+				res = SPIFFS_format(&fs);
+				if (res < 0) {
+			        free(my_spiffs_work_buf);
+			        free(my_spiffs_fds);
+			        free(my_spiffs_cache);
+					syslog(LOG_ERR, "spiffs%d format error",unit);
+					return;
+				}
+			}
+			else {
+		        free(my_spiffs_work_buf);
+		        free(my_spiffs_fds);
+		        free(my_spiffs_cache);
+				syslog(LOG_ERR, "spiffs%d error mounting fs (%d)", unit, res);
+				return;
+			}
+		}
+		else break;
+		retries++;
+    }
+
+    if (retries > 1) {
+        free(my_spiffs_work_buf);
+        free(my_spiffs_fds);
+        free(my_spiffs_cache);
+		syslog(LOG_ERR, "spiffs%d can't mount", unit);
+		return;
     }
 
     mount_set_mounted("spiffs", 1);

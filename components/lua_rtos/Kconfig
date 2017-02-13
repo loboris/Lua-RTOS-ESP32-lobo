@@ -93,7 +93,7 @@ menu "Lua RTOS"
 		config LUA_RTOS_SPIFFS_SIZE
 		depends on LUA_RTOS_USE_SPIFFS
 	    int "Size"
-	    range 262144 1048576
+	    range 262144 2097152
 	    default 524288
   endmenu
   menu "FAT"

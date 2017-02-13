@@ -23,6 +23,7 @@
 							<builder id="cdt.managedbuild.builder.gnu.cross.917214998" keepEnvironmentInBuildfile="false" managedBuildOn="false" name="Gnu Make Builder" superClass="cdt.managedbuild.builder.gnu.cross"/>
 							<tool id="cdt.managedbuild.tool.gnu.cross.c.compiler.746622695" name="Cross GCC Compiler" superClass="cdt.managedbuild.tool.gnu.cross.c.compiler">
 								<option id="gnu.c.compiler.option.include.paths.1930340268" name="Include paths (-I)" superClass="gnu.c.compiler.option.include.paths" useByScannerDiscovery="false" valueType="includePath">
+									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/vfs/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/newlib/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/esp32/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/freertos/include&quot;"/>
@@ -31,14 +32,15 @@
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/log/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/lwip/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/lwip/include/lwip&quot;"/>
-									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/vfs/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/tcpip_adapter/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/sdmmc/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/fatfs/src&quot;"/>
+									<listOptionValue builtIn="false" value="&quot;${IDF_PATH}/components/spi_flash/include&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32/components/lua_rtos/Lua/modules}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32/build/include}&quot;"/>
 									<listOptionValue builtIn="false" value="&quot;${workspace_loc:/Lua-RTOS-ESP32/components/lua_rtos/sys}&quot;"/>
+									<listOptionValue builtIn="false" value="/home/LoBo2_Razno/ESP32/xtensa-esp32-elf/bin"/>
 								</option>
 								<option id="gnu.c.compiler.option.preprocessor.def.symbols.507238637" name="Defined symbols (-D)" superClass="gnu.c.compiler.option.preprocessor.def.symbols" useByScannerDiscovery="false" valueType="definedSymbols">
 									<listOptionValue builtIn="false" value="BUILD_TIME=100000"/>

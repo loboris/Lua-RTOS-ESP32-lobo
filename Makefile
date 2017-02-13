@@ -12,9 +12,9 @@ clean: restore-idf
 configure-idf-lua-rtos-tests:
 	@echo "Configure esp-idf for Lua RTOS tests ..."
 	@touch $(PROJECT_PATH)/components/lua_rtos/sys/sys_init.c
-ifeq ("$(wildcard $(IDF_PATH)/components/lua_rtos)","")
-	@ln -s $(PROJECT_PATH)/main/test/lua_rtos $(IDF_PATH)/components/lua_rtos
-endif
+#ifeq ("$(wildcard $(IDF_PATH)/components/lua_rtos)","")
+#	@ln -s $(PROJECT_PATH)/main/test/lua_rtos $(IDF_PATH)/components/lua_rtos
+#endif
 
 configure-idf-lua-rtos:
 	@echo "Configure esp-idf ..."

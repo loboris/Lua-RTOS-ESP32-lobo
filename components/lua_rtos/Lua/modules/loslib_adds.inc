@@ -20,6 +20,7 @@
 #include <sys/mount.h>
 
 extern const char *__progname;
+extern void spiffs_fs_stat(uint32_t *total, uint32_t *used);
 
 char lua_syslog_level = 0xff;
 
@@ -219,7 +220,6 @@ static int os_mkdir (lua_State *L) {
     return luaL_fileresult(L, mkdir(path, 0) == 0, path);
 }
 
-
 static int os_ls (lua_State *L) {
     const char *path = luaL_optstring(L, 1, NULL);
     DIR *dir = NULL;
@@ -247,13 +247,6 @@ static int os_ls (lua_State *L) {
     lpath = mount_resolve_to_logical(path);
     ppath = mount_resolve_to_physical(lpath);
 
-    if ((strcmp(ppath, "/spiffs/") != 0) && (strcmp(ppath, "/fat/") != 0)) {
-    	// Not on root
-        statok = stat(lpath, &sb);
-        if (( statok != 0) || (!S_ISDIR(sb.st_mode))) {
-            return luaL_error(L, "Not a Directory");
-        }
-    }
     if (strstr(ppath, "/fat/") == ppath) on_fat = 1;
 
     free(ppath);
@@ -300,10 +293,15 @@ static int os_ls (lua_State *L) {
         );
     }
 
-    //tty_unlock();
     closedir(dir);
 
     free(lpath);
+
+    if (!on_fat) {
+    	uint32_t total, used;
+    	spiffs_fs_stat(&total, &used);
+    	printf("\r\nSPIFFS: used %d of %d\r\n", used, total);
+    }
 
     return 0;    
 }
