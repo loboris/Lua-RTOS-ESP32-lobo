@@ -23,7 +23,8 @@
 
 * os
   * added function os.exists() for checking file existance
-  * os.ls() function improved, lists file timestamps (sfpiffs&fat), free and totals drive space, number of files in directory
+  * os.ls() function improved, lists file timestamps (sfpiffs&fat), free and total drive space, number of files in directory
+  * os.resetreason() corectly reports boot/reset reason
 
 * i2c
   * added high level functions: send, receive, sendreceive
@@ -50,13 +51,15 @@
 
 * sleep & boot
   * os.sleep() function improved, time is preserved after sleep
-  * slip time calibration added
+  * slip time calibration added, os.setsleepcalib() function
   * boot count added and reported at start
   * boot reason reported on boot and available as Lua function
 
 ### Other
 
 Added some documentations, lua examples, tools...
+
+---
 
 ---
 
