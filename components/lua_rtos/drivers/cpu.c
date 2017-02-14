@@ -31,6 +31,7 @@
 #include "freertos/task.h"
 
 #include "esp_system.h"
+#include "rom/rtc.h"
 
 #include <string.h>
 
@@ -358,8 +359,30 @@ struct bootflags
 };
 
 
-int cpu_reset_reason() {
-	return sdk_rtc_get_reset_reason();
+int cpu_reset_reason(char *buf) {
+	int reason = rtc_get_reset_reason(0);
+
+	if (buf) {
+		switch (reason) {
+			case  1: {sprintf(buf, "Vbat power on reset"); break;}
+			case  3: {sprintf(buf, "Software reset digital core"); break;}
+			case  4: {sprintf(buf, "Legacy watch dog reset digital core"); break;}
+			case  5: {sprintf(buf, "Deep Sleep reset digital core"); break;}
+			case  6: {sprintf(buf, "Reset by SLC module, reset digital core"); break;}
+			case  7: {sprintf(buf, "Timer Group0 Watch dog reset digital core"); break;}
+			case  8: {sprintf(buf, "Timer Group1 Watch dog reset digital core"); break;}
+			case  9: {sprintf(buf, "RTC Watch dog Reset digital core"); break;}
+			case 10: {sprintf(buf, "Instrusion tested to reset CPU"); break;}
+			case 11: {sprintf(buf, "Time Group reset CPU"); break;}
+			case 12: {sprintf(buf, "Software reset CPU"); break;}
+			case 13: {sprintf(buf, "RTC Watch dog Reset CPU"); break;}
+			case 14: {sprintf(buf, "for APP CPU, reseted by PRO CPU"); break;}
+			case 15: {sprintf(buf, "Reset when the vdd voltage is not stable"); break;}
+			case 16: {sprintf(buf, "RTC Watch dog reset digital core and rtc module"); break;}
+			default: sprintf(buf, "Unknown");
+		}
+	}
+	return reason;
 }					
 	
 /*

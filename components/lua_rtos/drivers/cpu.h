@@ -346,4 +346,4 @@ void cpu_idle(int seconds);
 unsigned int cpu_has_gpio(unsigned int port, unsigned int pin);
 unsigned int cpu_has_port(unsigned int port);
 void cpu_sleep(int seconds);
-int cpu_reset_reason();
+int cpu_reset_reason(char *buf);

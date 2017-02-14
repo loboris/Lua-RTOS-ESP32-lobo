@@ -65,6 +65,8 @@ static int os_sleep(lua_State *L) {
 	return 0;
 }
 
+#include "rom/rtc.h"
+
 static int os_set_sleep_calib(lua_State *L) {
 	float perc = luaL_checknumber(L, 1);
 	if (((perc > -1) && (perc < 1)) || ((perc < -20) || (perc > 20))) {
@@ -78,11 +80,13 @@ static int os_set_sleep_calib(lua_State *L) {
 }
 
 static int os_reset_reason(lua_State *L) {
-	//int reason = cpu_reset_reason();
+	char buf[64];
+	int reason = cpu_reset_reason(buf);
 
-	lua_pushinteger(L, 0);
-	
-	return 1;
+	lua_pushinteger(L, reason);
+	lua_pushstring(L, buf);
+
+	return 2;
 }
 
 static int os_loglevel(lua_State *L) {   
@@ -231,6 +235,7 @@ static int os_mkdir (lua_State *L) {
     
     return luaL_fileresult(L, mkdir(path, 0) == 0, path);
 }
+#include "ff.h"
 
 static int os_ls (lua_State *L) {
     const char *path = luaL_optstring(L, 1, NULL);
@@ -270,6 +275,10 @@ static int os_ls (lua_State *L) {
     }
 
     // Read directory entries
+    uint64_t total = 0;
+    int nfiles = 0;
+    printf("T  Size      Date/Time         Name\r\n");
+    printf("-----------------------------------\r\n");
     while ((ent = readdir(dir)) != NULL) {
     	sprintf(tpath, lpath);
         strcat(tpath,"/");
@@ -288,8 +297,14 @@ static int os_ls (lua_State *L) {
     	type = 'd';
         if (ent->d_type == DT_REG) {
             type = 'f';
+            nfiles++;
             if (statok) strcpy(size, "       ?");
-            else sprintf(size,"%8d", (int)sb.st_size);
+            else {
+            	total += sb.st_size;
+            	if (sb.st_size < (1024*1024)) sprintf(size,"%8d", (int)sb.st_size);
+            	else if ((sb.st_size/1024) < (1024*1024)) sprintf(size,"%6dKB", (int)(sb.st_size / 1024));
+            	else sprintf(size,"%6dMB", (int)(sb.st_size / (1024 * 1024)));
+            }
         //} else if (ent->d_type == DT_LNK) {
         //    type = 'l';
         //    sprintf(size,"%8d", ent->d_fsize);
@@ -297,13 +312,21 @@ static int os_ls (lua_State *L) {
             strcpy(size, "       -");
         }
         
-        printf("%c\t%s\t%s\t%s\n",
+        printf("%c  %s  %s  %s\r\n",
             type,
             size,
             tbuffer,
             ent->d_name
         );
     }
+    if (total) {
+        printf("-----------------------------------\r\n");
+    	if (total < (1024*1024)) printf("   %8d", (int)total);
+    	else if ((total/1024) < (1024*1024)) printf("   %6dKB", (int)(total / 1024));
+    	else printf("   %6dMB", (int)(total / (1024 * 1024)));
+    	printf(" in %d files\r\n", nfiles);
+    }
+    printf("-----------------------------------\r\n");
 
     closedir(dir);
 
@@ -312,7 +335,19 @@ static int os_ls (lua_State *L) {
     if (!on_fat) {
     	uint32_t total, used;
     	spiffs_fs_stat(&total, &used);
-    	printf("\r\nSPIFFS: used %d of %d\r\n", used, total);
+    	printf("SPIFFS: free %d KB of %d KB\r\n", (total-used) / 1024, total / 1024);
+    }
+    else {
+        FATFS *fs;
+        DWORD fre_clust, fre_sect, tot_sect;
+        // Get volume information and free clusters
+        FRESULT res = f_getfree("/fat", &fre_clust, &fs);
+        if (res == 0) {
+			// Get total sectors and free sectors
+			tot_sect = (fs->n_fatent - 2) * fs->csize;
+			fre_sect = fre_clust * fs->csize;
+	    	printf("FATFS: free %lu MB of %lu MB\r\n", (fre_sect / 2) / 1024, (tot_sect / 2) / 1024);
+    	}
     }
 
     return 0;    

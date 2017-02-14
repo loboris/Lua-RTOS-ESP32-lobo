@@ -82,41 +82,35 @@ void *_sys_tests(void *arg) {
 
 #endif
 
+static void sdcard_print_info(const sdmmc_card_t* card)
+{
+	printf("--------------------\r\n");
+	#if SD_1BITMODE
+    printf(" Mode: SPI (1bit)\r\n");
+	#else
+    printf(" Mode:  SD (4bit)\r\n");
+	#endif
+    printf(" Name: %s\r\n", card->cid.name);
+    printf(" Type: %s\r\n", (card->ocr & SD_OCR_SDHC_CAP)?"SDHC/SDXC":"SDSC");
+    printf("Speed: %s (%d MHz)\r\n", (card->csd.tr_speed > 25000000)?"high speed":"default speed", card->csd.tr_speed/1000000);
+    printf(" Size: %u MB\r\n", (uint32_t)(((uint64_t) card->csd.capacity) * card->csd.sector_size / (1024 * 1024)));
+    printf("  CSD: ver=%d, sector_size=%d, capacity=%d read_bl_len=%d\r\n",
+            card->csd.csd_ver,
+            card->csd.sector_size, card->csd.capacity, card->csd.read_block_len);
+    printf("  SCR: sd_spec=%d, bus_width=%d\r\n", card->scr.sd_spec, card->scr.bus_width);
+}
+
+
 void _sys_init() {
+	struct timeval tv;
+    struct tm timeinfo;
+	time_t now;
+	char buf[64] = {'\0'};
+
 	esp_log_level_set("*", ESP_LOG_ERROR);
 
 	// Disable hardware modules modules
 	periph_module_disable(PERIPH_LEDC_MODULE);
-
-	if (sleep_check != SLEEP_CHECK_ID) boot_count = 0;
-	else boot_count++;
-	struct timeval tv;
-    struct tm timeinfo;
-	time_t now;
-	time(&now);
-	if ((sleep_check == SLEEP_CHECK_ID) && (sleep_start_time+sleep_seconds) > now) {
-		now = sleep_start_time+sleep_seconds;
-		sleep_check = 0;
-		printf("\r\nSleep time: %u sec\r\n", sleep_seconds);
-    	localtime_r(&sleep_start_time, &timeinfo);
-		printf("      From: %s", asctime(&timeinfo));
-    	localtime_r(&now, &timeinfo);
-		printf("        To: %s", asctime(&timeinfo));
-	}
-
-	localtime_r(&now, &timeinfo);
-    // Is time set? If not, tm_year will be (1970 - 1900).
-    if (timeinfo.tm_year < (2017 - 1900)) {
-        // Time is not set yet
-    	now = BUILD_TIME;
-    	localtime_r(&now, &timeinfo);
-    	printf("\r\nTime is not set, setting to build time: %s", asctime(&timeinfo));
-    }
-    tv.tv_sec = now;
-	tv.tv_usec = 0;
-	settimeofday(&tv, NULL);
-
-	if (boot_count) printf("Boot count: %u\r\n", boot_count);
 
 	// Init important things for Lua RTOS
 	_clock_init();
@@ -129,14 +123,46 @@ void _sys_init() {
 
     _signal_init();
 
-	//console_clear();
-
 	esp_vfs_unregister("/dev/uart");
 	vfs_tty_register();
 
-	printf("\r\n  /\\       /\\\r\n");
+	// Print some startup info
+	console_clear();
+
+	if (sleep_check != SLEEP_CHECK_ID) boot_count = 0;
+	else boot_count++;
+
+	cpu_reset_reason(buf);
+	printf("\r\n Boot reason: %s\r\n", buf);
+	if (boot_count) printf("  Boot count: %u\r\n", boot_count);
+
+	time(&now);
+	if ((sleep_check == SLEEP_CHECK_ID) && (sleep_start_time+sleep_seconds) > now) {
+		now = sleep_start_time+sleep_seconds;
+		sleep_check = 0;
+		printf("  Sleep time: %u sec\r\n", sleep_seconds);
+    	localtime_r(&sleep_start_time, &timeinfo);
+		printf("        From: %s", asctime(&timeinfo));
+    	localtime_r(&now, &timeinfo);
+		printf("          To: %s", asctime(&timeinfo));
+	}
+
+	localtime_r(&now, &timeinfo);
+    // Is time set? If not, tm_year will be (1970 - 1900).
+    if (timeinfo.tm_year < (2017 - 1900)) {
+        // Time is not set yet
+    	now = BUILD_TIME;
+    	localtime_r(&now, &timeinfo);
+    	printf("Time not set: build time: %s", asctime(&timeinfo));
+    }
+    tv.tv_sec = now;
+	tv.tv_usec = 0;
+	settimeofday(&tv, NULL);
+	printf("\r\n");
+
+	printf("  /\\       /\\\r\n");
     printf(" /  \\_____/  \\\r\n");
-    printf("/_____________\\\r\n");
+    printf("/______________\\\r\n");
     printf("W H I T E C A T\r\n\r\n");
 
     printf("Lua RTOS %s build %d Copyright (C) 2015 - 2017 whitecatboard.org\r\n", LUA_OS_VER, BUILD_TIME);
@@ -212,30 +238,35 @@ void _sys_init() {
         // Please check its source code and implement error recovery when developing
         // production applications.
         sdmmc_card_t* card;
-        esp_err_t ret = esp_vfs_fat_sdmmc_mount("/fat", &host, &slot_config, &mount_config, &card);
+    	esp_log_level_set("*", ESP_LOG_NONE);
+        printf("Mounting SD Card: ");
+
+    	esp_err_t ret = esp_vfs_fat_sdmmc_mount("/fat", &host, &slot_config, &mount_config, &card);
         if (ret != ESP_OK) {
             if (ret == ESP_FAIL) {
-            	syslog(LOG_WARNING, "Failed to mount filesystem. May be not formated");
+            	printf("Failed to mount filesystem. May be not formated\r\n");
             } else {
-            	syslog(LOG_WARNING, "Failed to initialize the card (%d). Check SD physical connection.", ret);
+            	printf("Failed to initialize. Check connection.\r\n");
             }
         }
         else {
 			// Card has been initialized, print its properties
-			sdmmc_card_print_info(stdout, card);
+        	printf("OK\r\n");
+			sdcard_print_info(card);
 	        mount_set_mounted("fat", 1);
         }
+    	esp_log_level_set("*", ESP_LOG_ERROR);
 
         if (mount_is_mounted("fat")) {
             // Redirect console messages to /log/messages.log ...
             closelog();
-            syslog(LOG_INFO, "redirecting console messages to file system ...");
+            printf("\r\nredirecting console messages to file system ...\r\n");
             openlog(__progname, LOG_NDELAY , LOG_LOCAL1);
         } else {
-        	syslog(LOG_ERR, "can't redirect console messages to file system, an SDCARD is needed");
+        	printf("\r\ncan't redirect console messages to file system, an SDCARD is needed\r\n");
         }   
     #endif
         
     // Continue init ...
-    printf("\n");
+    printf("\r\n");
 }

@@ -23,6 +23,7 @@
 
 * os
   * added function os.exists() for checking file existance
+  * os.ls() function improved, lists file timestamps (sfpiffs&fat), free and totals drive space, number of files in directory
 
 * i2c
   * added high level functions: send, receive, sendreceive
@@ -41,15 +42,17 @@
 * spiffs
   * updated to latest spiffs commits
   * added support for file timestamp
-  * added used & total info in os.ls()
+  * added free & total space info in os.ls()
 
 * sd card support & fat fs
   * FAT FS on SDCARD changed to use esp-idf SDMMC and fat drivers
   * sd card can be connected in 1-line (spi) or 4-line (sd) mode
 
-* sleep
+* sleep & boot
   * os.sleep() function improved, time is preserved after sleep
+  * slip time calibration added
   * boot count added and reported at start
+  * boot reason reported on boot and available as Lua function
 
 ### Other
 
