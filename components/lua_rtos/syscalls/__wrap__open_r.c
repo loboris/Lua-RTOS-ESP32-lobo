@@ -10,6 +10,7 @@
 #include <sys/mount.h>
 
 extern int __real__open_r(struct _reent *r, const char *path, int flags, int mode);
+extern void uart_writes(unsigned char unit, char *s);
 
 int IRAM_ATTR __wrap__open_r(struct _reent *r, const char *path, int flags, int mode) {
 	char *ppath;
