@@ -30,6 +30,7 @@
 #ifndef NET_H_
 #define NET_H_
 
+#include "lwip/opt.h"
 #include "lwip/err.h"
 #include "lwip/sockets.h"
 #include "lwip/sys.h"
@@ -54,5 +55,6 @@ typedef struct {
 
 driver_error_t *net_check_connectivity();
 driver_error_t *net_lookup(const char *name, struct sockaddr_in *address);
+driver_error_t *net_get(const char *name, const char *page, char *response);
 
 #endif

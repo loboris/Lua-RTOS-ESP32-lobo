@@ -15,7 +15,13 @@
   * Supported  are many graphics elements, fixed width and proportional fonts (7 included, unlimited number of fonts from file)
   * jpeg, bmp and raw bitmap images.
   * Touch screen supported
- 
+
+* cjson
+  * Fast, standards compliant encoding/parsing routines
+  * Full support for JSON with UTF-8, including decoding surrogate pairs
+  * Optional run-time support for common exceptions to the JSON specification (infinity, NaN,..)
+  * No dependencies on other libraries
+
 ### Modified modules
 
 * io
@@ -31,6 +37,10 @@
 
 * spi
   * spi driver to support spi on any pin (needed fot tft module)
+
+* net.http
+  * start & stop functions renamed to serverstart & serverstop
+  * added http client functions get, post, postfile
 
 * sensor
   * added i2c support 

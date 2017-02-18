@@ -4,13 +4,13 @@
 
 #include <limits.h>
 
-#include <sys/dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include <stdio.h>
+#include "stdio.h"
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/dirent.h>
 
 #include <sys/stat.h>
 #include <sys/syslog.h>
@@ -18,6 +18,8 @@
 #include <sys/console.h>
 #include <drivers/cpu.h>
 #include <sys/mount.h>
+#include "ff.h"
+#include "rom/rtc.h"
 
 extern const char *__progname;
 extern void spiffs_fs_stat(uint32_t *total, uint32_t *used);
@@ -64,8 +66,6 @@ static int os_sleep(lua_State *L) {
 	
 	return 0;
 }
-
-#include "rom/rtc.h"
 
 static int os_set_sleep_calib(lua_State *L) {
 	float perc = luaL_checknumber(L, 1);
@@ -235,7 +235,7 @@ static int os_mkdir (lua_State *L) {
     
     return luaL_fileresult(L, mkdir(path, 0) == 0, path);
 }
-#include "ff.h"
+
 
 static int os_ls (lua_State *L) {
     const char *path = luaL_optstring(L, 1, NULL);

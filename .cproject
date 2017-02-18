@@ -45,6 +45,8 @@
 								<option id="gnu.c.compiler.option.preprocessor.def.symbols.507238637" name="Defined symbols (-D)" superClass="gnu.c.compiler.option.preprocessor.def.symbols" useByScannerDiscovery="false" valueType="definedSymbols">
 									<listOptionValue builtIn="false" value="BUILD_TIME=100000"/>
 									<listOptionValue builtIn="false" value="LED_ACT=5"/>
+									<listOptionValue builtIn="false" value="LWIP_DNS=1"/>
+									<listOptionValue builtIn="false" value="LWIP_SOCKET=1"/>
 								</option>
 								<inputType id="cdt.managedbuild.tool.gnu.c.compiler.input.827066523" superClass="cdt.managedbuild.tool.gnu.c.compiler.input"/>
 							</tool>

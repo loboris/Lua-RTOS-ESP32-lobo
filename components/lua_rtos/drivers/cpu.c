@@ -37,6 +37,7 @@
 
 #include <soc/dport_reg.h>
 
+#include <stdio.h>
 #include <sys/syslog.h>
 #include <sys/delay.h>
 #include <sys/status.h>
@@ -82,8 +83,6 @@ static const char *pin_names[] = {
 };
 #endif
 
-//extern void sdk_system_restart_in_nmi(void);
-extern uint8_t sdk_rtc_get_reset_reason(void);
 
 uint64_t _speep_calib = 1000000LL;
 RTC_DATA_ATTR time_t sleep_start_time = 0;
@@ -360,7 +359,7 @@ struct bootflags
 
 
 int cpu_reset_reason(char *buf) {
-	int reason = rtc_get_reset_reason(0);
+	int reason = rtc_get_reset_reason(LUA_TASK_CPU);
 
 	if (buf) {
 		switch (reason) {
