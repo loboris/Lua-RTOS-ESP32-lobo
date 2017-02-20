@@ -407,6 +407,7 @@ static const LUA_REG_TYPE syslib[] =
   { LSTRKEY( "resetreason" ), LFUNCVAL( os_reset_reason ) },
   { LSTRKEY( "mountfat" ),   LFUNCVAL( os_mountfat ) },
   { LSTRKEY( "unmountfat" ), LFUNCVAL( os_unmountfat ) },
+  { LSTRKEY( "bootcount" ), LFUNCVAL( os_bootcount ) },
 #if (LUA_USE_EDITOR == 1)
   { LSTRKEY( "edit" ),       LFUNCVAL( os_edit ) },
 #endif

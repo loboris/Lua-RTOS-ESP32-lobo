@@ -340,8 +340,8 @@ static int lsensor_list( lua_State* L ) {
 	}
 
 	if (!table) {
-		printf("SENSOR      INTERFACE   PROVIDES                    PROPERTIES                 \r\n");
-		printf("-------------------------------------------------------------------------------\r\n");
+		printf("SENSOR      INTERFACE   PROVIDES                         PROPERTIES                    \r\n");
+		printf("---------------------------------------------------------------------------------------\r\n");
 	} else {
 		lua_createtable(L, count, 0);
 	}
@@ -373,7 +373,7 @@ static int lsensor_list( lua_State* L ) {
 				}
 			}
 
-			for(;len < 25;len++) printf(" ");
+			for(;len < 30;len++) printf(" ");
 
 			printf("   ");
 

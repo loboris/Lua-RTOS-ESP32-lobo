@@ -537,6 +537,12 @@ static int os_exists(lua_State *L) {
 	return 1;
 }
 
+static int os_bootcount(lua_State *L) {
+	lua_pushinteger(L, boot_count);
+
+	return 1;
+}
+
 static int os_mountfat(lua_State *L) {
 	mount_fatfs();
 	return 0;

@@ -25,6 +25,9 @@ static rgbVal *ws2812_buf = NULL;
 static uint8_t ws2812_pixels = 8;
 
 
+// Setup WS2812 on 'data_pin' for 'num_leds' LEDs of given type 'type'
+// led.ws2812.init(data_pin, num_led, type)
+//========================================
 static int pio_ws2812_init(lua_State *L) {
 	driver_error_t *error;
 
@@ -36,9 +39,10 @@ static int pio_ws2812_init(lua_State *L) {
     int pcnt = luaL_checkinteger(L, 2);
     if (pcnt < 1) pcnt = 1;
     if (pcnt > 128) pcnt = 128;
+    int type = luaL_checkinteger(L, 3) & 3;
 
     ws2812_pixels = pcnt;
-    ws2812_init(pin);
+    ws2812_init(pin,type);
     if (!ws2812_buf) {
     	ws2812_buf = malloc(sizeof(rgbVal) * pcnt);
     }
@@ -54,6 +58,9 @@ static int pio_ws2812_init(lua_State *L) {
     return 0;
 }
 
+// Deinitialize LEDs, clear LUDs and free buffer
+// led.ws2812.deinit()
+//=========================================
 static int pio_ws2812_deinit(lua_State *L) {
     if (ws2812_buf) {
         rgbVal color = makeRGBVal(0, 0, 0);
@@ -68,6 +75,9 @@ static int pio_ws2812_deinit(lua_State *L) {
     return 0;
 }
 
+// Clear LEDs
+// led.ws2812.clear()
+//=========================================
 static int pio_ws2812_clear(lua_State *L) {
     if (ws2812_buf) {
         rgbVal color = makeRGBVal(0, 0, 0);
@@ -80,6 +90,9 @@ static int pio_ws2812_clear(lua_State *L) {
     return 0;
 }
 
+// update LEDs from buffer
+// led.ws2812.update()
+//==========================================
 static int pio_ws2812_update(lua_State *L) {
     if (ws2812_buf) {
         ws2812_setColors(ws2812_pixels, ws2812_buf);
@@ -88,6 +101,10 @@ static int pio_ws2812_update(lua_State *L) {
     return 0;
 }
 
+// Set color at pos in led buffer
+// Optionally, number of LEDs to update can be given
+// led.ws2812.set(pos, color | r,g,b [, num_leds])
+//=============================================
 static int pio_ws2812_set_color(lua_State *L) {
     if (ws2812_buf) {
         uint8_t cnt = 1;
@@ -121,12 +138,17 @@ static int pio_ws2812_set_color(lua_State *L) {
     return 0;
 }
 
+// Set color at pos in led buffer & update LEDs
+// Optionally, number of LEDs to update can be given
+// led.ws2812.setcol(pos, color | r,g,b [, num_leds])
+//===================================================
 static int pio_ws2812_setupdate_color(lua_State *L) {
 	pio_ws2812_set_color(L);
 	pio_ws2812_update(L);
 	return 0;
 }
 
+//=============================================
 static int pio_ws2812_get_color(lua_State *L) {
     if (ws2812_buf) {
         uint8_t pos = luaL_checkinteger(L, 1);
@@ -151,6 +173,7 @@ static int pio_ws2812_get_color(lua_State *L) {
     return 3;
 }
 
+//======================================
 static int pio_ws2812_test(lua_State *L)
 {
     if (!ws2812_buf) {
@@ -160,7 +183,7 @@ static int pio_ws2812_test(lua_State *L)
     const uint8_t anim_step = 10;
     const uint8_t anim_max = 200;
     const uint8_t pixel_count = ws2812_pixels; // Number of your "pixels"
-    const uint8_t delay = 20; 				   // duration between color changes
+    const uint8_t delay = 25; 				   // duration between color changes
     rgbVal color = makeRGBVal(anim_max, 0, 0);
     uint8_t step = 0;
     rgbVal color2 = makeRGBVal(anim_max, 0, 0);
@@ -226,30 +249,34 @@ static int pio_ws2812_test(lua_State *L)
 #include "modules.h"
 
 static const LUA_REG_TYPE pio_ws2812_map[] = {
-	{ LSTRKEY( "init"   ),	LFUNCVAL( pio_ws2812_init      ) },
-	{ LSTRKEY( "deinit" ),	LFUNCVAL( pio_ws2812_deinit    ) },
-	{ LSTRKEY( "set"    ),	LFUNCVAL( pio_ws2812_set_color ) },
-	{ LSTRKEY( "setcol" ),	LFUNCVAL( pio_ws2812_setupdate_color ) },
-	{ LSTRKEY( "get"    ),	LFUNCVAL( pio_ws2812_get_color ) },
-	{ LSTRKEY( "clear"  ),	LFUNCVAL( pio_ws2812_clear     ) },
-	{ LSTRKEY( "update" ),	LFUNCVAL( pio_ws2812_update    ) },
-	{ LSTRKEY( "test"   ),	LFUNCVAL( pio_ws2812_test      ) },
-	{ LSTRKEY( "BLACK"  ),  LINTVAL(0x000000) },
-	{ LSTRKEY( "WHITE"  ),  LINTVAL(0xFFFFFF) },
-	{ LSTRKEY( "RED"    ),  LINTVAL(0xFF0000) },
-	{ LSTRKEY( "LIME"   ),  LINTVAL(0x00FF00) },
-	{ LSTRKEY( "BLUE"   ),  LINTVAL(0x0000FF) },
-	{ LSTRKEY( "YELLOW" ),  LINTVAL(0xFFFF00) },
-	{ LSTRKEY( "CYAN"   ),  LINTVAL(0x00FFFF) },
-	{ LSTRKEY( "MAGENTA"),  LINTVAL(0xFF00FF) },
-	{ LSTRKEY( "SILVER" ),  LINTVAL(0xC0C0C0) },
-	{ LSTRKEY( "GRAY"   ),  LINTVAL(0x808080) },
-	{ LSTRKEY( "MAROON" ),  LINTVAL(0x800000) },
-	{ LSTRKEY( "OLIVE"  ),  LINTVAL(0x808000) },
-	{ LSTRKEY( "GREEN"  ),  LINTVAL(0x008000) },
-	{ LSTRKEY( "PURPLE" ),  LINTVAL(0x800080) },
-	{ LSTRKEY( "TEAL"   ),  LINTVAL(0x008080) },
-	{ LSTRKEY( "NAVY"   ),  LINTVAL(0x000080) },
+	{ LSTRKEY( "init"   ),  	LFUNCVAL( pio_ws2812_init      ) },
+	{ LSTRKEY( "deinit" ),  	LFUNCVAL( pio_ws2812_deinit    ) },
+	{ LSTRKEY( "set"    ),  	LFUNCVAL( pio_ws2812_set_color ) },
+	{ LSTRKEY( "setcol" ),	    LFUNCVAL( pio_ws2812_setupdate_color ) },
+	{ LSTRKEY( "get"    ),  	LFUNCVAL( pio_ws2812_get_color ) },
+	{ LSTRKEY( "clear"  ),   	LFUNCVAL( pio_ws2812_clear     ) },
+	{ LSTRKEY( "update" ),	    LFUNCVAL( pio_ws2812_update    ) },
+	{ LSTRKEY( "test"   ),	    LFUNCVAL( pio_ws2812_test      ) },
+	{ LSTRKEY( "BLACK"  ),      LINTVAL(0x000000) },
+	{ LSTRKEY( "WHITE"  ),      LINTVAL(0xFFFFFF) },
+	{ LSTRKEY( "RED"    ),      LINTVAL(0xFF0000) },
+	{ LSTRKEY( "LIME"   ),      LINTVAL(0x00FF00) },
+	{ LSTRKEY( "BLUE"   ),      LINTVAL(0x0000FF) },
+	{ LSTRKEY( "YELLOW" ),      LINTVAL(0xFFFF00) },
+	{ LSTRKEY( "CYAN"   ),      LINTVAL(0x00FFFF) },
+	{ LSTRKEY( "MAGENTA"),      LINTVAL(0xFF00FF) },
+	{ LSTRKEY( "SILVER" ),      LINTVAL(0xC0C0C0) },
+	{ LSTRKEY( "GRAY"   ),      LINTVAL(0x808080) },
+	{ LSTRKEY( "MAROON" ),      LINTVAL(0x800000) },
+	{ LSTRKEY( "OLIVE"  ),      LINTVAL(0x808000) },
+	{ LSTRKEY( "GREEN"  ),      LINTVAL(0x008000) },
+	{ LSTRKEY( "PURPLE" ),      LINTVAL(0x800080) },
+	{ LSTRKEY( "TEAL"   ),      LINTVAL(0x008080) },
+	{ LSTRKEY( "NAVY"   ),      LINTVAL(0x000080) },
+	{ LSTRKEY( "LED_WS2812"  ), LINTVAL(LED_WS2812) },
+	{ LSTRKEY( "LED_WS2812B" ), LINTVAL(LED_WS2812B) },
+	{ LSTRKEY( "LED_SK6812"  ), LINTVAL(LED_SK6812) },
+	{ LSTRKEY( "LED_WS2813"  ), LINTVAL(LED_WS2813) },
 
     { LNILKEY, LNILVAL }
 };
