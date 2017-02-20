@@ -20,25 +20,23 @@ extern TM_One_Wire_Devices_t ow_devices[MAX_ONEWIRE_PINS];
 static unsigned char ow_alarm_device [MAX_ONEWIRE_SENSORS][8];
 #endif
 
-
 // Sensor specification and registration
 const sensor_t __attribute__((used,unused,section(".sensors"))) ds1820_sensor = {
 	.id = "DS1820",
 	.interface = OWIRE_INTERFACE,
 	.data = {
 		{.id = "temperature", .type = SENSOR_DATA_FLOAT},
-		{.id = "rom", .type = SENSOR_DATA_EXFUNC},
-		{.id = "type", .type = SENSOR_DATA_EXFUNC},
-		{.id = "resolution", .type = SENSOR_DATA_EXFUNC},
-		{.id = "listdev", .type = SENSOR_DATA_EXFUNC},
-		{.id = "numdev", .type = SENSOR_DATA_EXFUNC},
 	},
-	.settings = {
+	.properties = {
 		{.id = "resolution", .type = SENSOR_DATA_INT},
+		{.id = "rom", .type = SENSOR_DATA_STRING},
+		{.id = "type", .type = SENSOR_DATA_STRING},
+		{.id = "numdev", .type = SENSOR_DATA_INT},
 	},
 	.setup = ds1820_setup,
 	.acquire = ds1820_acquire,
-	.set = ds1820_set
+	.set = ds1820_set,
+	.get = ds1820_get,
 };
 
 
@@ -137,7 +135,7 @@ static owState_t TM_DS18B20_Read(uint8_t dev, unsigned char *ROM, double *destin
   unsigned char i = 0;
   unsigned char data[9];
   unsigned char crc;
-	
+
   /* Check if device is DS18B20 */
   if (!TM_DS18B20_Is(ROM)) {
     return owError_Not18b20;
@@ -145,7 +143,7 @@ static owState_t TM_DS18B20_Read(uint8_t dev, unsigned char *ROM, double *destin
   /* Check if line is released, if it is, then conversion is complete */
   if (!TM_OneWire_ReadBit(dev)) {
     /* Conversion is not finished yet */
-    return owError_NotFinished; 
+    return owError_NotFinished;
   }
   /* Reset line */
   if (TM_OneWire_Reset(dev) != 0) {
@@ -350,7 +348,7 @@ static unsigned char TM_DS18B20_SetAlarmLowTemperature(uint8_t dev, unsigned cha
   }
   if (temp > 125) {
     temp = 125;
-  } 
+  }
   if (temp < -55) {
     temp = -55;
   }
@@ -407,7 +405,7 @@ static owState_t TM_DS18B20_SetAlarmHighTemperature(uint8_t dev, unsigned char *
   }
   if (temp > 125) {
     temp = 125;
-  } 
+  }
   if (temp < -55) {
     temp = -55;
   }
@@ -536,6 +534,8 @@ void ds1820_getrom(sensor_instance_t *unit, char *ROM) {
 	uint8_t owdev = unit->setup.owire.owdevice;
 	uint8_t sens = unit->setup.owire.owsensor - 1;
 
+	sens = owire_addess_to_dev(owdev, sens);
+
 	int i;
 	for (i = 0; i < 8; i++) {
 		sprintf(ROM+(i*2), "%02x", ow_devices[owdev].roms[sens][i]);
@@ -547,6 +547,8 @@ void ds1820_gettype(sensor_instance_t *unit, char *buf) {
 	uint8_t owdev = unit->setup.owire.owdevice;
 	uint8_t sens = unit->setup.owire.owsensor - 1;
 
+	sens = owire_addess_to_dev(owdev, sens);
+
 	uint8_t code = TM_DS18B20_Is(&(ow_devices[owdev].roms[sens][0]));
 	if (code) TM_DS18B20_Family(code, buf);
 	else sprintf(buf, "unknown");
@@ -554,9 +556,7 @@ void ds1820_gettype(sensor_instance_t *unit, char *buf) {
 
 //-----------------------------------------------
 uint8_t ds1820_get_res(sensor_instance_t *unit) {
-	uint8_t owdev = unit->setup.owire.owdevice;
-
-	return unit->settings[0].integerd.value;
+	return unit->properties[0].integerd.value;
 }
 
 //-------------------------------------
@@ -621,8 +621,10 @@ driver_error_t *ds1820_setup(sensor_instance_t *unit) {
 	uint8_t dev = unit->setup.owire.owdevice;
 	uint8_t ds_dev = unit->setup.owire.owsensor;
 
+	ds_dev = owire_addess_to_dev(dev, ds_dev);
+
 	// Set default resolution to 10 bit
-	unit->settings[0].integerd.value = 10;
+	unit->properties[0].integerd.value = 10;
 
 	uint8_t numDS182 = numDS1820dev(dev);
 	if ((numDS182 == 0) || (ds_dev > numDS182) || (ds_dev == 0)) {
@@ -635,28 +637,30 @@ driver_error_t *ds1820_setup(sensor_instance_t *unit) {
 	}
 
 	// Set default resolution (10 bits)
-	unit->settings[0].integerd.value = _set_resolution(10, dev, ds_dev);
+	unit->properties[0].integerd.value = _set_resolution(10, dev, ds_dev);
 
 	// Set exfunc values
-	unit->data[1].exfuncd.value = EXFUNC_DS1820_GETROM;
-	unit->data[2].exfuncd.value = EXFUNC_DS1820_GETTYPE;
-	unit->data[3].exfuncd.value = EXFUNC_DS1820_GETRESOLUTION;
-	unit->data[4].exfuncd.value = EXFUNC_OWIRE_LISTDEV;
-	unit->data[5].exfuncd.value = EXFUNC_DS1820_NUMDEV;
+	//unit->data[1].exfuncd.value = EXFUNC_DS1820_GETROM;
+//	unit->data[2].exfuncd.value = EXFUNC_DS1820_GETTYPE;
+	//unit->data[3].exfuncd.value = EXFUNC_DS1820_GETRESOLUTION;
+//	unit->data[4].exfuncd.value = EXFUNC_OWIRE_LISTDEV;
+	//unit->data[5].exfuncd.value = EXFUNC_DS1820_NUMDEV;
 
 	return NULL;
 }
 
 //--------------------------------------------------------------------------------------------
-driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting) {
+driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value_t *property) {
 	if (strcmp(id,"resolution") == 0) {
 		unsigned char ds_dev = unit->setup.owire.owsensor;
 		uint8_t dev = unit->setup.owire.owdevice;
 
-		memcpy(&unit->settings[0], setting, sizeof(sensor_value_t));
+		ds_dev = owire_addess_to_dev(dev, ds_dev);
+
+		memcpy(&unit->properties[0], property, sizeof(sensor_value_t));
 
 		// Set sensor's resolution
-		unit->settings[0].integerd.value = _set_resolution(setting->integerd.value, dev, ds_dev);
+		unit->properties[0].integerd.value = _set_resolution(property->integerd.value, dev, ds_dev);
 	}
 
 	return NULL;
@@ -666,12 +670,15 @@ driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value
 driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values) {
 	unsigned char sens = unit->setup.owire.owsensor - 1;
 	uint8_t dev = unit->setup.owire.owdevice;
+
+	sens = owire_addess_to_dev(dev, sens);
+
 	owState_t stat;
 	double temper;
 	uint16_t measure_time = 900;
 
 	// set measure time, it depends on resolution
-	switch (unit->settings[0].integerd.value) {
+	switch (unit->properties[0].integerd.value) {
 	case 9:
 		measure_time = 150;
 		break;
@@ -725,5 +732,43 @@ driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values) 
 		values[0].floatd.value = -9999.0;
 	}
 
-    return NULL;
+	return NULL;
+}
+
+driver_error_t *ds1820_get(sensor_instance_t *unit, const char *id, sensor_value_t *property) {
+	if (strcmp(id,"numdev") == 0) {
+		property->integerd.value  = ds1820_numdev(unit);
+	} else if (strcmp(id,"rom") == 0) {
+		// Free previous value, if needed
+		if (property->stringd.value) {
+			free(property->stringd.value);
+		}
+
+		// Allocate space for buffer
+		char *buffer = (char *)calloc(1, 32);
+		if (!buffer) {
+			return driver_operation_error(SENSOR_DRIVER, SENSOR_ERR_NOT_ENOUGH_MEMORY, NULL);
+		}
+
+		ds1820_getrom(unit, buffer);
+
+		property->stringd.value = buffer;
+	} else if (strcmp(id,"type") == 0) {
+		// Free previous value, if needed
+		if (property->stringd.value) {
+			free(property->stringd.value);
+		}
+
+		// Allocate space for buffer
+		char *buffer = (char *)calloc(1, 32);
+		if (!buffer) {
+			return driver_operation_error(SENSOR_DRIVER, SENSOR_ERR_NOT_ENOUGH_MEMORY, NULL);
+		}
+
+		ds1820_gettype(unit, buffer);
+
+		property->stringd.value = buffer;
+	}
+
+	return NULL;
 }

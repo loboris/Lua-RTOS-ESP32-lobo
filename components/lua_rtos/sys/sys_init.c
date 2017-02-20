@@ -100,6 +100,88 @@ static void sdcard_print_info(const sdmmc_card_t* card)
     printf("  SCR: sd_spec=%d, bus_width=%d\r\n", card->scr.sd_spec, card->scr.bus_width);
 }
 
+//------------------
+void mount_fatfs() {
+#if USE_FAT
+    if (mount_is_mounted("fat")) {
+    	printf("FAT fs already mounted\r\n");
+    	return;
+    }
+    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
+
+	#if SD_1BITMODE
+    // Use 1-line SD mode
+    host.flags = SDMMC_HOST_FLAG_1BIT;
+	#endif
+    // This initializes the slot without card detect (CD) and write protect (WP) signals.
+    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
+    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
+
+    // Options for mounting the filesystem.
+    // If format_if_mount_failed is set to true, SD card will be partitioned and formatted
+    // in case when mounting fails.
+    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+		#if SD_FORMAT
+    	.format_if_mount_failed = true,
+		#else
+		.format_if_mount_failed = false,
+		#endif
+		.max_files = SD_MAXFILES
+    };
+
+    // Use settings defined above to initialize SD card and mount FAT filesystem.
+    // Note: esp_vfs_fat_sdmmc_mount is an all-in-one convenience function.
+    // Please check its source code and implement error recovery when developing
+    // production applications.
+    sdmmc_card_t* card;
+	esp_log_level_set("*", ESP_LOG_NONE);
+    printf("Mounting SD Card: ");
+
+	esp_err_t ret = esp_vfs_fat_sdmmc_mount("/fat", &host, &slot_config, &mount_config, &card);
+    if (ret != ESP_OK) {
+        if (ret == ESP_FAIL) {
+        	printf("Failed to mount filesystem. May be not formated\r\n");
+        } else {
+        	printf("Failed to initialize. Check connection.\r\n");
+        }
+    }
+    else {
+		// Card has been initialized, print its properties
+    	printf("OK\r\n");
+		sdcard_print_info(card);
+        mount_set_mounted("fat", 1);
+    }
+	esp_log_level_set("*", ESP_LOG_ERROR);
+
+    if (mount_is_mounted("fat")) {
+        // Redirect console messages to /log/messages.log ...
+        closelog();
+        printf("\r\nredirecting console messages to file system ...\r\n");
+        openlog(__progname, LOG_NDELAY , LOG_LOCAL1);
+    } else {
+    	printf("\r\ncan't redirect console messages to file system, an SDCARD is needed\r\n");
+    }
+#endif
+}
+
+//--------------------
+void unmount_fatfs() {
+#if USE_FAT
+    if (mount_is_mounted("fat")) {
+    	esp_err_t ret = esp_vfs_fat_sdmmc_unmount();
+        if (ret != ESP_OK) {
+           	printf("FAT fs was not mounted\r\n");
+        }
+        mount_set_mounted("fat", 0);
+
+    	printf("FAT fs unmounted\r\n");
+    }
+    else {
+    	printf("FAT fs was not mounted\r\n");
+    }
+#endif
+}
+
 
 void _sys_init() {
 	struct timeval tv;
@@ -125,6 +207,9 @@ void _sys_init() {
 
 	esp_vfs_unregister("/dev/uart");
 	vfs_tty_register();
+
+	printf("Booting Lua RTOS... \r\n");
+	delay(100);
 
 	// Print some startup info
 	console_clear();
@@ -210,62 +295,7 @@ void _sys_init() {
     	vfs_spiffs_register();
     #endif
 
-	#if USE_FAT
-        sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-
-		#if SD_1BITMODE
-        // Use 1-line SD mode
-        host.flags = SDMMC_HOST_FLAG_1BIT;
-		#endif
-        // This initializes the slot without card detect (CD) and write protect (WP) signals.
-        // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
-        sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-
-        // Options for mounting the filesystem.
-        // If format_if_mount_failed is set to true, SD card will be partitioned and formatted
-        // in case when mounting fails.
-        esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-			#if SD_FORMAT
-        	.format_if_mount_failed = true,
-			#else
-			.format_if_mount_failed = false,
-			#endif
-			.max_files = SD_MAXFILES
-        };
-
-        // Use settings defined above to initialize SD card and mount FAT filesystem.
-        // Note: esp_vfs_fat_sdmmc_mount is an all-in-one convenience function.
-        // Please check its source code and implement error recovery when developing
-        // production applications.
-        sdmmc_card_t* card;
-    	esp_log_level_set("*", ESP_LOG_NONE);
-        printf("Mounting SD Card: ");
-
-    	esp_err_t ret = esp_vfs_fat_sdmmc_mount("/fat", &host, &slot_config, &mount_config, &card);
-        if (ret != ESP_OK) {
-            if (ret == ESP_FAIL) {
-            	printf("Failed to mount filesystem. May be not formated\r\n");
-            } else {
-            	printf("Failed to initialize. Check connection.\r\n");
-            }
-        }
-        else {
-			// Card has been initialized, print its properties
-        	printf("OK\r\n");
-			sdcard_print_info(card);
-	        mount_set_mounted("fat", 1);
-        }
-    	esp_log_level_set("*", ESP_LOG_ERROR);
-
-        if (mount_is_mounted("fat")) {
-            // Redirect console messages to /log/messages.log ...
-            closelog();
-            printf("\r\nredirecting console messages to file system ...\r\n");
-            openlog(__progname, LOG_NDELAY , LOG_LOCAL1);
-        } else {
-        	printf("\r\ncan't redirect console messages to file system, an SDCARD is needed\r\n");
-        }   
-    #endif
+   	mount_fatfs();
         
     // Continue init ...
     printf("\r\n");

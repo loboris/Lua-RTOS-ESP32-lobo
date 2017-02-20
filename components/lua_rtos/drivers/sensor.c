@@ -29,7 +29,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_SENSORS
+#if USE_SENSORS
 
 #include <string.h>
 
@@ -62,6 +62,7 @@ struct list sensor_list;
 /*
  * Helper functions
  */
+#if USE_ADC
 static driver_error_t *sensor_adc_setup(sensor_instance_t *unit) {
 	driver_unit_lock_error_t *lock_error = NULL;
 	driver_error_t *error;
@@ -82,6 +83,7 @@ static driver_error_t *sensor_adc_setup(sensor_instance_t *unit) {
 
 	return NULL;
 }
+#endif
 
 static driver_error_t *sensor_gpio_setup(sensor_instance_t *unit) {
 	driver_unit_lock_error_t *lock_error = NULL;
@@ -98,6 +100,7 @@ static driver_error_t *sensor_gpio_setup(sensor_instance_t *unit) {
 	return NULL;
 }
 
+#if USE_OWIRE
 static driver_error_t *sensor_owire_setup(sensor_instance_t *unit) {
 	driver_error_t *error;
 
@@ -132,20 +135,18 @@ static driver_error_t *sensor_owire_setup(sensor_instance_t *unit) {
 
 	return NULL;
 }
+#endif
 
-
+#if USE_I2C
 static driver_error_t *sensor_i2c_setup(sensor_instance_t *unit) {
 	driver_error_t *error;
-
-	// Check if i2c interface is setup on the given gpios
-	unit->setup.i2c.userdata = NULL;
 
     if ((error = i2c_setup(unit->setup.i2c.id, I2C_MASTER, unit->setup.i2c.speed, unit->setup.i2c.sda, unit->setup.i2c.scl, 0, 0))) {
     	return error;
     }
 	return NULL;
 }
-
+#endif
 
 /*
  * Operation functions
@@ -155,7 +156,7 @@ void sensor_init() {
     list_init(&sensor_list, 0);
 }
 
-const sensor_t *sensor_get(const char *id) {
+const sensor_t *get_sensor(const char *id) {
 	const sensor_t *csensor;
 
 	csensor = sensors;
@@ -169,13 +170,13 @@ const sensor_t *sensor_get(const char *id) {
 	return NULL;
 }
 
-const sensor_data_t *sensor_get_setting(const sensor_t *sensor, const char *setting) {
+const sensor_data_t *sensor_get_property(const sensor_t *sensor, const char *property) {
 	int idx = 0;
 
-	for(idx=0;idx <  SENSOR_MAX_SETTINGS;idx++) {
-		if (sensor->settings[idx].id) {
-			if (strcmp(sensor->settings[idx].id,setting) == 0) {
-				return &(sensor->settings[idx]);
+	for(idx=0;idx <  SENSOR_MAX_PROPERTIES;idx++) {
+		if (sensor->properties[idx].id) {
+			if (strcmp(sensor->properties[idx].id,property) == 0) {
+				return &(sensor->properties[idx]);
 			}
 		}
 	}
@@ -209,9 +210,9 @@ driver_error_t *sensor_setup(const sensor_t *sensor, sensor_setup_t *setup, sens
 		instance->data[i].type = sensor->data[i].type;
 	}
 
-	// Initialize sensor settings from sensor definition into instance
-	for(i=0;i<SENSOR_MAX_SETTINGS;i++) {
-		instance->settings[i].type = sensor->settings[i].type;
+	// Initialize sensor properties from sensor definition into instance
+	for(i=0;i<SENSOR_MAX_PROPERTIES;i++) {
+		instance->properties[i].type = sensor->properties[i].type;
 	}
 
 	// Add instance to sensor_list
@@ -223,10 +224,16 @@ driver_error_t *sensor_setup(const sensor_t *sensor, sensor_setup_t *setup, sens
 
 	// Setup sensor interface
 	switch (sensor->interface) {
+#if USE_ADC
 		case ADC_INTERFACE: error = sensor_adc_setup(instance);break;
+#endif
 		case GPIO_INTERFACE: error = sensor_gpio_setup(instance);break;
+#if USE_OWIRE
 		case OWIRE_INTERFACE: error = sensor_owire_setup(instance);break;
+#endif
+#if USE_I2C
 		case I2C_INTERFACE: error = sensor_i2c_setup(instance);break;
+#endif
 		default:
 			return driver_setup_error(SENSOR_DRIVER, SENSOR_ERR_INTERFACE_NOT_SUPPORTED, NULL);
 			break;
@@ -307,10 +314,35 @@ driver_error_t *sensor_set(sensor_instance_t *unit, const char *id, sensor_value
 		return driver_operation_error(SENSOR_DRIVER, SENSOR_ERR_SET_UNDEFINED, NULL);
 	}
 
-	for(idx=0;idx < SENSOR_MAX_SETTINGS;idx++) {
-		if (unit->sensor->settings[idx].id) {
-			if (strcmp(unit->sensor->settings[idx].id,id) == 0) {
+	for(idx=0;idx < SENSOR_MAX_PROPERTIES;idx++) {
+		if (unit->sensor->properties[idx].id) {
+			if (strcmp(unit->sensor->properties[idx].id,id) == 0) {
 				unit->sensor->set(unit, id, value);
+				return NULL;
+			}
+		}
+	}
+
+	return driver_operation_error(SENSOR_DRIVER, SENSOR_ERR_NOT_FOUND, NULL);
+}
+
+driver_error_t *sensor_get(sensor_instance_t *unit, const char *id, sensor_value_t **value) {
+	int idx = 0;
+
+	*value = NULL;
+
+	// Sanity checks
+	if (!unit->sensor->get) {
+		return driver_operation_error(SENSOR_DRIVER, SENSOR_ERR_SET_UNDEFINED, NULL);
+	}
+
+	for(idx=0;idx < SENSOR_MAX_PROPERTIES;idx++) {
+		if (unit->sensor->properties[idx].id) {
+			if (strcmp(unit->sensor->properties[idx].id,id) == 0) {
+				unit->sensor->get(unit, id, &unit->properties[idx]);
+
+				*value = &unit->properties[idx];
+
 				return NULL;
 			}
 		}

@@ -6,7 +6,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_OW
+#if USE_OWIRE
 
 #include <sys/syslog.h>
 #include <string.h>
@@ -16,15 +16,23 @@
 #include <drivers/gpio.h>
 #include <stdio.h>
 
-
 #define OWIRE_FIRST_PIN	1
 #define OWIRE_LAST_PIN	31
 
-// This macro gets a reference for this driver into drivers array
-#define OWIRE_DRIVER driver_get_by_name("owire")
+TM_One_Wire_Devices_t ow_devices[MAX_ONEWIRE_PINS];
 
+// Convert address to device
+int8_t owire_addess_to_dev(uint8_t sensor, uint64_t address) {
+	if (address < 255) {
+		return address;
+	}
 
-TM_One_Wire_Devices_t ow_devices[MAX_ONEWIRE_PINS] = {0};
+	for (uint8_t i=0;i<MAX_ONEWIRE_SENSORS;i++) {
+		if ((uint64_t)(ow_devices[sensor].roms[i][0]) == address) return i;
+	}
+
+	return -1;
+}
 
 // Check if owire pin is already setup
 int owire_checkpin(uint8_t pin) {
@@ -111,12 +119,14 @@ driver_error_t *owire_setup_pin(int8_t pin) {
 		return error;
 	}
 
-    syslog(LOG_INFO, "owire%d: at pin %s%d", pin, gpio_portname(resources.pin), gpio_name(resources.pin));
-
     return NULL;
 }
 
-DRIVER_REGISTER(OWIRE,owire,owire_locks,NULL,NULL);
+void owire_init() {
+	memset(ow_devices, 0, sizeof(TM_One_Wire_Devices_t) * MAX_ONEWIRE_PINS);
+}
+
+DRIVER_REGISTER(OWIRE,owire,owire_locks,owire_init,NULL);
 
 //******************
 // ONEWIRE FUNCTIONS
@@ -377,7 +387,6 @@ unsigned char TM_OneWire_Next(uint8_t dev) {
 static int TM_OneWire_Verify() {
   unsigned char rom_backup[8];
   int i,rslt,ld_backup,ldf_backup,lfd_backup;
-
   // keep a backup copy of the current state
   for (i = 0; i < 8; i++)
     rom_backup[i] = ow_devices[dev].device.ROM_NO[i];

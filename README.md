@@ -31,6 +31,7 @@
   * added function os.exists() for checking file existance
   * os.ls() function improved, lists file timestamps (sfpiffs&fat), free and total drive space, number of files in directory
   * os.resetreason() corectly reports boot/reset reason
+  * os.bootcount() function added (reboot count from last power on)
 
 * i2c
   * added high level functions: send, receive, sendreceive
@@ -44,11 +45,10 @@
 
 * sensor
   * added i2c support 
-  * extended read support with read functions
   * enhanced sensor list function
   * support for BME280 temperature, humidity and pressure sensors in I2C mode
-  * support for 1-wire devices on multiple 1-wire buses
-  * DS1820 temperature sensors support (including parasite power support)
+  * support for 1-wire devices on multiple 1-wire buses (Now added to Whitecat's repo)
+  * DS1820 temperature sensors support (including parasite power support) (Now added to Whitecat's repo)
 
 * spiffs
   * updated to latest spiffs commits
@@ -56,13 +56,13 @@
   * added free & total space info in os.ls()
 
 * sd card support & fat fs
-  * FAT FS on SDCARD changed to use esp-idf SDMMC and fat drivers
+  * FAT FS on SDCARD changed to use **esp-idf SDMMC** and fat drivers
   * sd card can be connected in 1-line (spi) or 4-line (sd) mode
 
 * sleep & boot
   * os.sleep() function improved, time is preserved after sleep
-  * slip time calibration added, os.setsleepcalib() function
-  * boot count added and reported at start
+  * sleep time calibration added, os.setsleepcalib() function
+  * boot count added and reported at start and available as Lua function
   * boot reason reported on boot and available as Lua function
 
 ### Other

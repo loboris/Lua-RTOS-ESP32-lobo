@@ -44,6 +44,8 @@
 #include <sys/dirent.h>
 #include <sys/syslog.h>
 #include <sys/panic.h>
+#include <unistd.h>
+#include <sys/mount.h>
 
 #define PORT           80
 #define SERVER         "lua-rtos-http-server/1.0"
@@ -120,16 +122,28 @@ void send_error(FILE *f, int status, char *title, char *extra, char *text) {
 }
 
 void send_file(FILE *f, char *path, struct stat *statbuf) {
-    int n;
-    char data[HTPP_BUFF_SIZE];
-    FILE *file = fopen(path, "r");
+	//printf("HTTP: send file [%s]\r\n", path);
+    int n, buflen;
+    char *data; //[HTPP_BUFF_SIZE];
+
+	FILE *file = fopen(path, "r");
 
     if (!file) {
         send_error(f, 403, "Forbidden", NULL, "Access denied.");
     } else {
         int length = S_ISREG(statbuf->st_mode) ? statbuf->st_size : -1;
         send_headers(f, 200, "OK", NULL, get_mime_type(path), length);
-        while ((n = fread(data, 1, sizeof (data), file)) > 0) fwrite(data, 1, n, f);
+
+        buflen = 8192;
+        if (length < 8192) buflen = length;
+        data = (char *)malloc(8192);
+        if (data) {
+        	while ((n = fread(data, 1, buflen, file)) > 0) fwrite(data, 1, n, f);
+    		free(data);
+        }
+        else {
+            send_error(f, 403, "Error", NULL, "File read.");
+        }
         fclose(file);
     }
 }
@@ -147,6 +161,7 @@ static void chunk(FILE *f, const char *fmt, ...) {
 
 		vsnprintf(buffer, 2048, fmt, args);
 
+		//printf("CHUNK: [%s]\r\n", buffer);
 		fprintf(f, "%x\r\n", strlen(buffer));
 		fprintf(f, "%s\r\n", buffer);
 
@@ -156,22 +171,29 @@ static void chunk(FILE *f, const char *fmt, ...) {
 	}
 }
 
+
 int process(FILE *f) {
     char buf[HTPP_BUFF_SIZE];
     char *method;
+    char *httppath;
     char *path;
     char *protocol;
     struct stat statbuf;
     char pathbuf[HTPP_BUFF_SIZE];
-    int len;
+    //int len;
 
     if (!fgets(buf, sizeof (buf), f)) return -1;
 
     method = strtok(buf, " ");
-    path = strtok(NULL, " ");
+    httppath = strtok(NULL, " ");
     protocol = strtok(NULL, "\r");
 
-    if (!method || !path || !protocol) return -1;
+    if (!method || !httppath || !protocol) {
+    	syslog(LOG_DEBUG, "HTTP: Error\r");
+    	return -1;
+    }
+
+    path = mount_resolve_to_logical(httppath);
 
     syslog(LOG_DEBUG, "http: %s %s %s\r", method, path, protocol);
 
@@ -179,69 +201,93 @@ int process(FILE *f) {
 
     if (strcasecmp(method, "GET") != 0) {
         send_error(f, 501, "Not supported", NULL, "Method is not supported.");
-    } else if (stat(path, &statbuf) < 0) {
-        send_error(f, 404, "Not Found", NULL, "File not found.");
-        syslog(LOG_DEBUG, "http: %s Not found\r", path);
-    } else if (S_ISDIR(statbuf.st_mode)) {
-        len = strlen(path);
-        if (len == 0 || path[len - 1] != '/') {
-            snprintf(pathbuf, sizeof (pathbuf), "Location: %s/", path);
-            send_error(f, 302, "Found", pathbuf, "Directories must end with a slash.");
-        } else {
-            snprintf(pathbuf, sizeof (pathbuf), "%sindex.html", path);
-            if (stat(pathbuf, &statbuf) >= 0) {
-                send_file(f, pathbuf, &statbuf);
-            } else {
-                DIR *dir;
-                struct dirent *de;
-
-                send_headers(f, 200, "OK", NULL, "text/html", -1);
-                chunk(f, "<HTML><HEAD><TITLE>Index of %s</TITLE></HEAD><BODY>", path);
-                chunk(f, "<H4>Index of %s</H4>", path);
-
-                chunk(f, "<TABLE>");
-                chunk(f, "<TR>");
-                chunk(f, "<TH style=\"width: 250;text-align: left;\">Name</TH><TH style=\"width: 100px;text-align: right;\">Size</TH>");
-                chunk(f, "</TR>");
-
-                if (len > 1) {
-                    chunk(f, "<TR>");
-                	chunk(f, "<TD><A HREF=\"..\">..</A></TD><TD></TD>");
-                    chunk(f, "</TR>");
-                }
-
-                dir = opendir(path);
-                while ((de = readdir(dir)) != NULL) {
-                    strcpy(pathbuf, path);
-                    strcat(pathbuf, de->d_name);
-
-                    stat(pathbuf, &statbuf);
-
-                    chunk(f, "<TR>");
-                    chunk(f, "<TD>");
-                    chunk(f, "<A HREF=\"%s%s\">", de->d_name, S_ISDIR(statbuf.st_mode) ? "/" : "");
-                    chunk(f, "%s%s", de->d_name, S_ISDIR(statbuf.st_mode) ? "/</A>" : "</A> ");
-                    chunk(f, "</TD>");
-                    chunk(f, "<TD style=\"text-align: right;\">");
-                    if (!S_ISDIR(statbuf.st_mode)) {
-                        chunk(f, "%d", (int)statbuf.st_size);
-                    }
-                    chunk(f, "</TD>");
-                    chunk(f, "</TR>");
-                }
-                closedir(dir);
-
-
-                chunk(f, "</TABLE>");
-
-                chunk(f, "</BODY></HTML>", SERVER);
-
-                fprintf(f, "0\r\n\r\n");
-            }
-        }
-    } else {
-        send_file(f, path, &statbuf);
+        return -1;
     }
+
+    DIR *dir;
+	struct dirent *de;
+	dir = opendir(path);
+	if (!dir) {
+		if (stat(path, &statbuf) == 0) {
+			send_file(f, path, &statbuf);
+		}
+		send_error(f, 404, "Not Found", NULL, "File not found.");
+		syslog(LOG_DEBUG, "http: %s Not found\r", path);
+		return -1;
+	}
+	snprintf(pathbuf, sizeof (pathbuf), "%s/index.html", path);
+	if (stat(pathbuf, &statbuf) >= 0) {
+		closedir(dir);
+		send_file(f, pathbuf, &statbuf);
+		return 0;
+	}
+
+	send_headers(f, 200, "OK", NULL, "text/html", -1);
+	chunk(f, "<!DOCTYPE html><HTML><HEAD><TITLE>Index of %s</TITLE></HEAD><BODY background=\"/sd/www/bg1.png\">", path);
+	chunk(f, "<H4>Index of %s<hr></H4>", path);
+
+	//chunk(f, "<TABLE>");
+	chunk(f, "<TABLE style=\"border-collapse:collapse;\" cellpadding=\"4\" bordercolor=\"888888\" background=\"/sd/www/bg3.jpg\" border=\"1\">");
+	chunk(f, "<TR>");
+	chunk(f, "<TH style=\"width: 250;text-align: left;\" background=\"/sd/www/bg4.jpg\">Name</TH>");
+	chunk(f, "<TH style=\"width: 100px;text-align: right;\" background=\"/sd/www/bg4.jpg\">Size</TH>");
+	chunk(f, "<TH style=\"width: 200px;text-align: right;\" background=\"/sd/www/bg4.jpg\">Time</TH>");
+	chunk(f, "</TR>");
+
+	chunk(f, "<TR>");
+	chunk(f, "<TD><A HREF=\"..\">..</A></TD><TD></TD> <TD> </TD>");
+	chunk(f, "</TR>");
+
+	char tbuffer[80];
+	struct tm *tm_info;
+	int statok = -1;
+
+	while ((de = readdir(dir)) != NULL) {
+		strcpy(pathbuf, path);
+		if (strcmp(path, "/") != 0) strcat(pathbuf,"/");
+		strcat(pathbuf, de->d_name);
+		tbuffer[0] = '\0';
+		//printf("HTTP: dir [%s] [%s]\r\n", path, pathbuf);
+
+		statok = stat(pathbuf, &statbuf);
+		if ( statok == 0) {
+			tm_info = localtime(&statbuf.st_mtime);
+			strftime(tbuffer, 80, "%d/%m/%Y %R", tm_info);
+		}
+		else sprintf(tbuffer, "  ");
+
+		chunk(f, "<TR>");
+
+		// File name
+		chunk(f, "<TD>");
+		chunk(f, "<A HREF=\"%s%s\">", de->d_name, (de->d_type != DT_REG) ? "/" : "");
+		chunk(f, "%s%s", de->d_name, (de->d_type != DT_REG) ? "/</A>" : "</A> ");
+		chunk(f, "</TD>");
+		// File size
+		chunk(f, "<TD style=\"text-align: right;\">");
+		if (de->d_type == DT_REG) {
+			if ( statok == 0) chunk(f, "%d", (int)statbuf.st_size);
+			else chunk(f, "?");
+		}
+		else {
+			chunk(f, "DIR");
+		}
+		chunk(f, "</TD>");
+		// File time
+		chunk(f, "<TD style=\"text-align: right;\">");
+		chunk(f, "%s", tbuffer);
+		chunk(f, "</TD>");
+
+		chunk(f, "</TR>");
+	}
+	closedir(dir);
+
+
+	chunk(f, "</TABLE>");
+
+	chunk(f, "</BODY></HTML>", SERVER);
+
+	fprintf(f, "0\r\n\r\n");
 
     return 0;
 }
@@ -305,7 +351,7 @@ void http_start() {
 	pthread_attr_init(&attr);
 
 	// Set stack size
-    pthread_attr_setstacksize(&attr, LUA_TASK_STACK);
+    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN); //LUA_TASK_STACK);
 
     // Set priority
     sched.sched_priority = LUA_TASK_PRIORITY;

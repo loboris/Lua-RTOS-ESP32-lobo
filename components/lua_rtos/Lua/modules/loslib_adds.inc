@@ -23,6 +23,8 @@
 
 extern const char *__progname;
 extern void spiffs_fs_stat(uint32_t *total, uint32_t *used);
+extern void mount_fatfs();
+extern void unmount_fatfs();
 
 char lua_syslog_level = 0xff;
 
@@ -289,7 +291,6 @@ static int os_ls (lua_State *L) {
         statok = stat(tpath, &sb);
 
     	if (statok == 0) {
-    		// on fat fs, get file time
 			tm_info = localtime(&sb.st_mtime);
 			strftime(tbuffer, 80, "%d/%m/%Y %R", tm_info);
         }
@@ -534,6 +535,16 @@ static int os_exists(lua_State *L) {
 	else lua_pushboolean(L, true);
 
 	return 1;
+}
+
+static int os_mountfat(lua_State *L) {
+	mount_fatfs();
+	return 0;
+}
+
+static int os_unmountfat(lua_State *L) {
+	unmount_fatfs();
+	return 0;
 }
 
 static int os_run (lua_State *L) {

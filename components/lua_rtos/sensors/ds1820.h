@@ -66,7 +66,8 @@ typedef enum {
 
 driver_error_t *ds1820_setup(sensor_instance_t *unit);
 driver_error_t *ds1820_acquire(sensor_instance_t *unit, sensor_value_t *values);
-driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value_t *setting);
+driver_error_t *ds1820_set(sensor_instance_t *unit, const char *id, sensor_value_t *property);
+driver_error_t *ds1820_get(sensor_instance_t *unit, const char *id, sensor_value_t *property);
 
 unsigned char TM_DS18B20_Is(unsigned char *ROM);
 
