@@ -103,12 +103,12 @@ const char *driver_get_err_msg(driver_error_t *error) {
 
 const char *driver_get_err_msg_by_exception(int exception) {
 	const driver_t *driver;
-	driver_message_t *msg;
+	const driver_message_t *msg;
 
 	// Get driver by name
 	driver = driver_get_by_exception_base(exception & 0b11111111000000000000000000000000);
 	if (driver) {
-		msg = (driver_message_t *)driver->error;
+		msg = driver->error;
 
 		while (msg->message) {
 			if (msg->exception == exception) {

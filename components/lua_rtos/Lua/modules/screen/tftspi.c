@@ -665,13 +665,13 @@ static void ST7735_initR(uint8_t options) {
 //-----------------------
 void tft_set_defaults() {
     spi_pin_config(DISP_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-    spi_init(DISP_SPI);
+    spi_init(DISP_SPI, 1);
     gpio_pin_output(disp_dc);
     spi_set_mode(DISP_SPI, 0);
     spi_set_speed(DISP_SPI, 20000);
 
     spi_pin_config(TOUCH_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_TCS);
-    spi_init(TOUCH_SPI);
+    spi_init(TOUCH_SPI, 1);
     spi_set_mode(TOUCH_SPI, 2);
     spi_set_speed(TOUCH_SPI, 2500);
 }
@@ -681,12 +681,12 @@ void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, uns
     spi_pin_config(DISP_SPI, sdi, sdo, sck, cs);
     disp_dc = dc;
     gpio_pin_output(disp_dc);
-    spi_init(DISP_SPI);
+    spi_init(DISP_SPI, 1);
     spi_set_mode(DISP_SPI, 0);
     spi_set_speed(DISP_SPI, 20000);
 
     spi_pin_config(TOUCH_SPI, sdi, sdo, sck, tcs);
-    spi_init(TOUCH_SPI);
+    spi_init(TOUCH_SPI, 1);
     spi_set_mode(TOUCH_SPI, 2);
     spi_set_speed(TOUCH_SPI, 2500);
 }

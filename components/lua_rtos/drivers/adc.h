@@ -32,8 +32,9 @@
 
 #include <stdint.h>
 
-#include <drivers/cpu.h>
+#include "driver/adc.h"
 
+#include <drivers/cpu.h>
 #include <sys/driver.h>
 
 // ADC channel
@@ -52,9 +53,10 @@ typedef struct {
 #define ADC_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  0)
 #define ADC_ERR_INVALID_UNIT             (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  1)
 #define ADC_ERR_INVALID_CHANNEL          (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  2)
+#define ADC_ERR_INVALID_ATTENUATION      (DRIVER_EXCEPTION_BASE(ADC_DRIVER_ID) |  4)
 
 driver_error_t *adc_setup(int8_t unit);
-driver_error_t *adc_setup_channel(int8_t channel, int8_t resolution);
+driver_error_t *adc_setup_channel(int8_t channel, int8_t resolution, int8_t attenuation);
 driver_error_t *adc_read(int8_t channel, int *raw, double *mvols);
 
 #endif	/* ADC_H */
