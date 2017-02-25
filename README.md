@@ -16,6 +16,12 @@
   * jpeg, bmp and raw bitmap images.
   * Touch screen supported
 
+* cam
+  * support for Arducam-Mini-2MP camera module, uses SPI & I2C interfaces
+  * jpeg format supported, sizes 176x120 to 1600x1200
+  * capture to file or buffer
+  * capture directly to tft Display (tft.jpgimage(x,y,scale,"cam") function
+
 * cjson
   * Fast, standards compliant encoding/parsing routines
   * Full support for JSON with UTF-8, including decoding surrogate pairs

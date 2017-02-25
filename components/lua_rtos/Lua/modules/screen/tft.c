@@ -17,6 +17,7 @@
 #include "time.h"
 #include "tjpgd.h"
 #include <math.h>
+#include "sys/status.h"
 
 #include "lua.h"
 #include "lualib.h"
@@ -1959,13 +1960,16 @@ static void _initvar(void) {
 // ================ JPG SUPPORT ================================================
 // User defined device identifier
 typedef struct {
-	FILE *fhndl;	// File handler for input function
-    uint16_t x;		// image top left point X position
-    uint16_t y;		// image top left point Y position
+	FILE *fhndl;		// File handler for input function
+    uint16_t x;			// image top left point X position
+    uint16_t y;			// image top left point Y position
+    uint8_t *membuff;	// memory buffer containing the image
+    uint32_t bufsize;	// size of the memory buffer
+    uint32_t bufptr;	// memory buffer current possition
 } JPGIODEV;
 
 
-// User defined call-back function to input JPEG data
+// User defined call-back function to input JPEG data from file
 //---------------------
 static UINT tjd_input (
 	JDEC* jd,		// Decompression object
@@ -1984,6 +1988,32 @@ static UINT tjd_input (
 	else {	// Remove nd bytes from the input stream
 		if (fseek(dev->fhndl, nd, SEEK_CUR) >= 0) return nd;
 		else return 0;
+	}
+}
+
+// User defined call-back function to input JPEG data from memory buffer
+//-------------------------
+static UINT tjd_buf_input (
+	JDEC* jd,		// Decompression object
+	BYTE* buff,		// Pointer to the read buffer (NULL:skip)
+	UINT nd			// Number of bytes to read/skip from input stream
+)
+{
+	// Device identifier for the session (5th argument of jd_prepare function)
+	JPGIODEV *dev = (JPGIODEV*)jd->device;
+	if (!dev->membuff) return 0;
+	if (dev->bufptr >= (dev->bufsize + 2)) return 0; // end of stream
+
+	if ((dev->bufptr + nd) > (dev->bufsize + 2)) nd = (dev->bufsize + 2) - dev->bufptr;
+
+	if (buff) {	// Read nd bytes from the input strem
+		memcpy(buff, dev->membuff + dev->bufptr, nd);
+		dev->bufptr += nd;
+		return nd;	// Returns number of bytes read
+	}
+	else {	// Remove nd bytes from the input stream
+		dev->bufptr += nd;
+		return nd;
 	}
 }
 
@@ -2036,6 +2066,9 @@ static UINT tjd_output (
 	return 1;	// Continue to decompression
 }
 
+extern uint8_t *cam_get_image(FILE *fhndl, int *err, uint32_t *bytes_read, uint8_t capture);
+
+// tft.jpgimage(X, Y, scale, file_name [, from_cam]
 //=======================================
 static int ltft_jpg_image( lua_State* L )
 {
@@ -2044,8 +2077,8 @@ static int ltft_jpg_image( lua_State* L )
 	const char *fname;
 	size_t len;
 	JPGIODEV dev;
-    char *basename;
     struct stat sb;
+    uint8_t dbg = 0;
 
 	int x = luaL_checkinteger( L, 1 );
 	int y = luaL_checkinteger( L, 2 );
@@ -2056,18 +2089,34 @@ static int ltft_jpg_image( lua_State* L )
 
     if (strlen(fname) == 0) return 0;
 
-    basename = strrchr(fname, '/');
-    if (basename == NULL) basename = (char *)fname;
-    else basename++;
-    if (strlen(basename) == 0) return 0;
-
-    if (stat(fname, &sb) != 0) {
-        return luaL_error(L, strerror(errno));
+    if (lua_gettop(L) > 4) {
+    	if (luaL_checkinteger( L, 5 ) != 0) dbg = 1;
     }
 
-    dev.fhndl = fopen(fname, "r");
-    if (!dev.fhndl) {
-        return luaL_error(L, strerror(errno));
+    if ((strcmp(fname, "CAM") == 0) || (strcmp(fname, "cam") == 0)) {
+    	// image from camera
+    	dev.fhndl = NULL;
+    	int err = 0;
+        dev.membuff = cam_get_image(NULL, &err, &dev.bufsize, 1);
+        if (err != 0) {
+            //return luaL_error(L, "Camera error %d", err);
+        	return 0;
+        }
+        dev.bufptr = 2;
+    }
+    else {
+    	// image from file
+        dev.membuff = NULL;
+        dev.bufsize = 0;
+
+        if (stat(fname, &sb) != 0) {
+            return luaL_error(L, strerror(errno));
+        }
+
+        dev.fhndl = fopen(fname, "r");
+        if (!dev.fhndl) {
+            return luaL_error(L, strerror(errno));
+        }
     }
 
 	char *work;				// Pointer to the working buffer (must be 4-byte aligned)
@@ -2085,7 +2134,8 @@ static int ltft_jpg_image( lua_State* L )
 
 	work = malloc(sz_work);
 	if (work) {
-		rc = jd_prepare(&jd, tjd_input, (void *)work, sz_work, &dev);
+		if (dev.membuff) rc = jd_prepare(&jd, tjd_buf_input, (void *)work, sz_work, &dev);
+		else rc = jd_prepare(&jd, tjd_input, (void *)work, sz_work, &dev);
 		if (rc == JDR_OK) {
 			if (x == CENTER) {
 				x = _width - (jd.width >> scale);
@@ -2136,7 +2186,7 @@ static int ltft_jpg_image( lua_State* L )
 					if (scale == maxscale) break;
 				}
 			}
-			syslog(LOG_INFO, "Image dimensions: %dx%d, scale: %d, bytes used: %d", jd.width, jd.height, scale, jd.sz_pool);
+			if (dbg) printf("Image dimensions: %dx%d, scale: %d, bytes used: %d\r\n", jd.width, jd.height, scale, jd.sz_pool);
 
 			if (radj) {
 				x = _width - (jd.width >> scale);
@@ -2151,22 +2201,23 @@ static int ltft_jpg_image( lua_State* L )
 			// Start to decompress the JPEG file
 			rc = jd_decomp(&jd, tjd_output, scale);
 			if (rc != JDR_OK) {
-				syslog(LOG_ERR, "jpg decompression error %d", rc);
+				if (dbg) printf("jpg decompression error %d\r\n", rc);
 			}
 		}
 		else {
-			syslog(LOG_ERR, "jpg prepare error %d", rc);
+			if (dbg) printf("jpg prepare error %d\r\n", rc);
 		}
 
 		free(work);  // free work buffer
 	}
 	else {
-		syslog(LOG_ERR, "work buffer allocation error");
+		if (dbg) printf("work buffer allocation error\r\n");
 	}
 
-	fclose(dev.fhndl);  // close input file
+    if (dev.fhndl) fclose(dev.fhndl);  // close input file
+    if (dev.membuff) free(dev.membuff);
 
-	return 0;
+    return 0;
 }
 
 //==================================

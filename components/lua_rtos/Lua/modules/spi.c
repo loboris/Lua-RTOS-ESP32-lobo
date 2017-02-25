@@ -142,7 +142,7 @@ static int lspi_rw_helper( lua_State *L, int withread ) {
 	spi = (spi_userdata *)luaL_checkudata(L, 1, "spi");
 	luaL_argcheck(L, spi, 1, "spi expected");
 
-	size_t len, residx = 0;
+	size_t len, residx = 1;
 
 	if (withread)
 		lua_newtable(L);

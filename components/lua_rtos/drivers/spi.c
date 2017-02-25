@@ -500,7 +500,9 @@ driver_error_t *spi_select(int unit) {
     	PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sdi], pin_func);
         PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sdo], pin_func);
         PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->sck], pin_func);
-        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->cs],  pin_func);
+        // *** DO NOT USE SPI HW CS ***
+        PIN_FUNC_SELECT(GPIO_PIN_MUX_REG[dev->res->cs],  PIN_FUNC_GPIO);
+    	gpio_set_direction(dev->res->cs, GPIO_MODE_OUTPUT);
 
         if (pin_func == PIN_FUNC_GPIO) {
         	gpio_set_direction(dev->res->sdo, GPIO_MODE_OUTPUT);
