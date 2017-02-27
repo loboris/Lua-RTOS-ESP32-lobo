@@ -517,6 +517,7 @@ driver_error_t *spi_select(int unit) {
 			gpio_matrix_out(dev->res->cs,  io_signal[unit-1].spics_out,  0, 0);
         }
 
+        WRITE_PERI_REG(SPI_USER_REG(unit), 0);
     	// Set mode
     	switch (dev->mode) {
     		case 0:
@@ -557,8 +558,13 @@ driver_error_t *spi_select(int unit) {
     	// Set bit order to MSB
         CLEAR_PERI_REG_MASK(SPI_CTRL_REG(unit), SPI_WR_BIT_ORDER | SPI_RD_BIT_ORDER);
 
+        // Set byte order to litte_endian
+        //CLEAR_PERI_REG_MASK(SPI_USER_REG(unit), SPI_WR_BYTE_ORDER);
+
         // Enable full-duplex communication
-        SET_PERI_REG_MASK(SPI_USER_REG(unit), SPI_DOUTDIN);
+        if (dev->res->duplex) {
+        	SET_PERI_REG_MASK(SPI_USER_REG(unit), SPI_DOUTDIN);
+        }
 
         // Configure as master
         WRITE_PERI_REG(SPI_USER1_REG(unit), 0);
@@ -601,6 +607,8 @@ driver_error_t *spi_deselect(int unit) {
 	spi_interface_t *dev = &spi[unit];
 
     if (dev->res->cs) {
+		// Wait for SPI bus ready
+		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
         gpio_pin_set(dev->res->cs);
     }
 
@@ -867,6 +875,7 @@ driver_error_t *spi_init(int unit, int master) {
     );
 	*/
     spi_set_mode(unit, 0);
+    spi_set_duplex(unit, 1);
 
     dev->dirty = 1;
     
@@ -878,5 +887,12 @@ DRIVER_REGISTER(SPI,spi,NULL,_spi_init,spi_lock_resources);
 void spi_set_dirty(int unit) {
 	spi_interface_t *dev = &spi[unit];
 
+    dev->dirty = 1;
+}
+
+void spi_set_duplex(int unit, int duplex) {
+	spi_interface_t *dev = &spi[unit];
+
+    dev->res->duplex = duplex;
     dev->dirty = 1;
 }

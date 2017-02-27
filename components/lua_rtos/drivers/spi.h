@@ -47,6 +47,7 @@ typedef struct {
 	uint8_t sdo;
 	uint8_t sck;
 	uint8_t cs;
+	uint8_t duplex;
 } spi_resources_t;
 
 typedef struct {
@@ -107,5 +108,6 @@ driver_error_t *spi_bulk_write32(int unit, unsigned int nelem, int *data);
 driver_error_t *spi_bulk_write32_be(int unit, unsigned int nelem, int *data);
 driver_error_t *spi_bulk_read32_be(int unit, unsigned int nelem, int *data);
 void spi_set_dirty(int unit);
+void spi_set_duplex(int unit, int duplex);
 
 #endif

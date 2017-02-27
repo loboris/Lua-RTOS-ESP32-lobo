@@ -100,7 +100,6 @@ extern uint8_t tft_tooney32[];
 
 //static uint8_t tp_initialized = 0;	// touch panel initialized flag
 
-static int TFT_type = -1;
 static uint8_t *userfont = NULL;
 static uint8_t orientation = PORTRAIT;	// screen orientation
 static uint8_t rotation = 0;			// font rotation
@@ -128,12 +127,12 @@ static float _angleOffset = DEFAULT_ANGLE_OFFSET;
 // All drawings are clipped to 'dispWin'
 
 // draw color pixel on screen
-//---------------------------------------------------------------
-static void TFT_drawPixel(int16_t x, int16_t y, uint16_t color) {
+//----------------------------------------------------------------------------
+static void TFT_drawPixel(int16_t x, int16_t y, uint16_t color, uint8_t sel) {
 
   if ((x < dispWin.x1) || (y < dispWin.y1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
 
-  drawPixel(x, y, color);
+  drawPixel(x, y, color, sel);
 }
 
 //---------------------------------------------------
@@ -151,8 +150,7 @@ static void TFT_drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 	if (y < dispWin.y1) y = dispWin.y1;
 	if ((y + h) > (dispWin.y2+1)) h = dispWin.y2 - y + 1;
 
-	fill_tftline(color, h);
-	send_data(x, y, x, y+h-1, (uint32_t)h, tft_line);
+	TFT_pushColorRep(x, y, x, y+h-1, color, (uint32_t)h);
 }
 
 //------------------------------------------------------------------------------
@@ -162,28 +160,7 @@ static void TFT_drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 	if (x < dispWin.x1) x = dispWin.x1;
 	if ((x + w) > (dispWin.x2+1)) w = dispWin.x2 - x + 1;
 
-	fill_tftline(color, w);
-	send_data(x, y, x+w-1, y, (uint32_t)w, tft_line);
-}
-
-//---------------------------------------------------------------------
-static void TFT_drawFastVLine_noFill(int16_t x, int16_t y, int16_t h) {
-	// clipping
-	if ((x < dispWin.x1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
-	if (y < dispWin.y1) y = dispWin.y1;
-	if ((y + h) > (dispWin.y2+1)) h = dispWin.y2 - y + 1;
-
-	send_data(x, y, x, y+h-1, (uint32_t)h, tft_line);
-}
-
-//---------------------------------------------------------------------
-static void TFT_drawFastHLine_noFill(int16_t x, int16_t y, int16_t w) {
-	// clipping
-	if ((y < dispWin.y1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
-	if (x < dispWin.x1) x = dispWin.x1;
-	if ((x + w) > (dispWin.x2+1)) w = dispWin.x2 - x + 1;
-
-	send_data(x, y, x+w-1, y, (uint32_t)w, tft_line);
+	TFT_pushColorRep(x, y, x+w-1, y, color, (uint32_t)w);
 }
 
 // fill a rectangle
@@ -229,6 +206,7 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 	int16_t x = 0;
 	int16_t y = r;
 
+	spi_select(DISP_SPI);
 	while (x < y) {
 		if (f >= 0) {
 			y--;
@@ -239,22 +217,23 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 		ddF_x += 2;
 		f += ddF_x;
 		if (cornername & 0x4) {
-			TFT_drawPixel(x0 + x, y0 + y, color);
-			TFT_drawPixel(x0 + y, y0 + x, color);
+			TFT_drawPixel(x0 + x, y0 + y, color, 0);
+			TFT_drawPixel(x0 + y, y0 + x, color, 0);
 		}
 		if (cornername & 0x2) {
-			TFT_drawPixel(x0 + x, y0 - y, color);
-			TFT_drawPixel(x0 + y, y0 - x, color);
+			TFT_drawPixel(x0 + x, y0 - y, color, 0);
+			TFT_drawPixel(x0 + y, y0 - x, color, 0);
 		}
 		if (cornername & 0x8) {
-			TFT_drawPixel(x0 - y, y0 + x, color);
-			TFT_drawPixel(x0 - x, y0 + y, color);
+			TFT_drawPixel(x0 - y, y0 + x, color, 0);
+			TFT_drawPixel(x0 - x, y0 + y, color, 0);
 		}
 		if (cornername & 0x1) {
-			TFT_drawPixel(x0 - y, y0 - x, color);
-			TFT_drawPixel(x0 - x, y0 - y, color);
+			TFT_drawPixel(x0 - y, y0 - x, color, 0);
+			TFT_drawPixel(x0 - x, y0 - y, color, 0);
 		}
 	}
+	spi_deselect(DISP_SPI);
 }
 
 // Used to do circles and roundrects
@@ -268,12 +247,10 @@ static void fillCircleHelper(int16_t x0, int16_t y0, int16_t r,	uint8_t cornerna
 	int16_t y = r;
 	int16_t ylm = x0 - r;
 
-	fill_tftline(color, TFT_LINEBUF_MAX_SIZE/2);
-
 	while (x < y) {
 		if (f >= 0) {
-			if (cornername & 0x1) TFT_drawFastVLine_noFill(x0 + y, y0 - x, 2 * x + 1 + delta);
-			if (cornername & 0x2) TFT_drawFastVLine_noFill(x0 - y, y0 - x, 2 * x + 1 + delta);
+			if (cornername & 0x1) TFT_drawFastVLine(x0 + y, y0 - x, 2 * x + 1 + delta, color);
+			if (cornername & 0x2) TFT_drawFastVLine(x0 - y, y0 - x, 2 * x + 1 + delta, color);
 			ylm = x0 - y;
 			y--;
 			ddF_y += 2;
@@ -284,8 +261,8 @@ static void fillCircleHelper(int16_t x0, int16_t y0, int16_t r,	uint8_t cornerna
 		f += ddF_x;
 
 		if ((x0 - x) > ylm) {
-			if (cornername & 0x1) TFT_drawFastVLine_noFill(x0 + x, y0 - y, 2 * y + 1 + delta);
-			if (cornername & 0x2) TFT_drawFastVLine_noFill(x0 - x, y0 - y, 2 * y + 1 + delta);
+			if (cornername & 0x1) TFT_drawFastVLine(x0 + x, y0 - y, 2 * y + 1 + delta, color);
+			if (cornername & 0x2) TFT_drawFastVLine(x0 - x, y0 - y, 2 * y + 1 + delta, color);
 		}
 	}
 }
@@ -294,13 +271,11 @@ static void fillCircleHelper(int16_t x0, int16_t y0, int16_t r,	uint8_t cornerna
 //-----------------------------------------------------------------------------------------------------
 static void TFT_drawRoundRect(int16_t x, int16_t y, uint16_t w, uint16_t h, uint16_t r, uint16_t color)
 {
-	fill_tftline(color, min(TFT_LINEBUF_MAX_SIZE/2, max(w, h)));
-
 	// smarter version
-	TFT_drawFastHLine_noFill(x + r, y, w - 2 * r);			// Top
-	TFT_drawFastHLine_noFill(x + r, y + h - 1, w - 2 * r);	// Bottom
-	TFT_drawFastVLine_noFill(x, y + r, h - 2 * r);			// Left
-	TFT_drawFastVLine_noFill(x + w - 1, y + r, h - 2 * r);	// Right
+	TFT_drawFastHLine(x + r, y, w - 2 * r, color);			// Top
+	TFT_drawFastHLine(x + r, y + h - 1, w - 2 * r, color);	// Bottom
+	TFT_drawFastVLine(x, y + r, h - 2 * r, color);			// Left
+	TFT_drawFastVLine(x + w - 1, y + r, h - 2 * r, color);	// Right
 
 	// draw four corners
 	drawCircleHelper(x + r, y + r, r, 1, color);
@@ -360,7 +335,7 @@ static void TFT_drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_drawPixel(y0, xs, color);
+        if (dlen == 1) TFT_drawPixel(y0, xs, color, 1);
         else TFT_drawFastVLine(y0, xs, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
@@ -374,7 +349,7 @@ static void TFT_drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_
       err -= dy;
       if (err < 0) {
         err += dx;
-        if (dlen == 1) TFT_drawPixel(xs, y0, color);
+        if (dlen == 1) TFT_drawPixel(xs, y0, color, 1);
         else TFT_drawFastHLine(xs, y0, dlen, color);
         dlen = 0; y0 += ystep; xs = x0 + 1;
       }
@@ -501,10 +476,11 @@ static void TFT_drawCircle(int16_t x, int16_t y, int radius, uint16_t color) {
   int x1 = 0;
   int y1 = radius;
 
-  TFT_drawPixel(x, y + radius, color);
-  TFT_drawPixel(x, y - radius, color);
-  TFT_drawPixel(x + radius, y, color);
-  TFT_drawPixel(x - radius, y, color);
+  spi_select(DISP_SPI);
+  TFT_drawPixel(x, y + radius, color, 0);
+  TFT_drawPixel(x, y - radius, color, 0);
+  TFT_drawPixel(x + radius, y, color, 0);
+  TFT_drawPixel(x - radius, y, color, 0);
   while(x1 < y1) {
     if (f >= 0) {
       y1--;
@@ -514,15 +490,16 @@ static void TFT_drawCircle(int16_t x, int16_t y, int radius, uint16_t color) {
     x1++;
     ddF_x += 2;
     f += ddF_x;
-    TFT_drawPixel(x + x1, y + y1, color);
-    TFT_drawPixel(x - x1, y + y1, color);
-    TFT_drawPixel(x + x1, y - y1, color);
-    TFT_drawPixel(x - x1, y - y1, color);
-    TFT_drawPixel(x + y1, y + x1, color);
-    TFT_drawPixel(x - y1, y + x1, color);
-    TFT_drawPixel(x + y1, y - x1, color);
-    TFT_drawPixel(x - y1, y - x1, color);
+    TFT_drawPixel(x + x1, y + y1, color, 0);
+    TFT_drawPixel(x - x1, y + y1, color, 0);
+    TFT_drawPixel(x + x1, y - y1, color, 0);
+    TFT_drawPixel(x - x1, y - y1, color, 0);
+    TFT_drawPixel(x + y1, y + x1, color, 0);
+    TFT_drawPixel(x - y1, y + x1, color, 0);
+    TFT_drawPixel(x + y1, y - x1, color, 0);
+    TFT_drawPixel(x - y1, y - x1, color, 0);
   }
+  spi_deselect(DISP_SPI);
 }
 
 //----------------------------------------------------------------------------
@@ -543,14 +520,16 @@ static void TFT_fillCircle(int16_t x, int16_t y, int radius, uint16_t color) {
 //--------------------------------------------------------------------------------------------------------------------
 static void TFT_draw_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16_t y0, uint16_t color, uint8_t option)
 {
+	spi_select(DISP_SPI);
     // upper right
-    if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_drawPixel(x0 + x, y0 - y, color);
+    if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_drawPixel(x0 + x, y0 - y, color, 0);
     // upper left
-    if ( option & TFT_ELLIPSE_UPPER_LEFT ) TFT_drawPixel(x0 - x, y0 - y, color);
+    if ( option & TFT_ELLIPSE_UPPER_LEFT ) TFT_drawPixel(x0 - x, y0 - y, color, 0);
     // lower right
-    if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_drawPixel(x0 + x, y0 + y, color);
+    if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_drawPixel(x0 + x, y0 + y, color, 0);
     // lower left
-    if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_drawPixel(x0 - x, y0 + y, color);
+    if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_drawPixel(x0 - x, y0 + y, color, 0);
+	spi_deselect(DISP_SPI);
 }
 
 //--------------------------------------------------------------------------------------------------------------
@@ -826,9 +805,6 @@ static void TFT_fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint
 		int ir2 = (radius - thickness) * (radius - thickness);
 		int or2 = radius * radius;
 
-		// Fill line with color
-		fill_tftline(color, TFT_LINEBUF_MAX_SIZE/2);
-
 		for (int x = xmin; x <= xmax; x++) {
 			bool y1StartFound = false, y2StartFound = false;
 			bool y1EndFound = false, y2EndSearching = false;
@@ -880,7 +856,7 @@ static void TFT_fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint
 					{
 						y1EndFound = true;
 						y1e = y - 1;
-						TFT_drawFastVLine_noFill(cx + x, cy + y1s, y - y1s);
+						TFT_drawFastVLine(cx + x, cy + y1s, y - y1s, color);
 						if (y < 0) {
 							y = abs(y); // skip the empty middle
 						}
@@ -890,7 +866,7 @@ static void TFT_fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint
 					{
 						if (y2EndSearching) {
 							// we found the end of the lower line after pixel by pixel search
-							TFT_drawFastVLine_noFill(cx + x, cy + y2s, y - y2s);
+							TFT_drawFastVLine(cx + x, cy + y2s, y - y2s, color);
 							y2EndSearching = false;
 							break;
 						}
@@ -904,12 +880,12 @@ static void TFT_fillArcOffsetted(uint16_t cx, uint16_t cy, uint16_t radius, uint
 			}
 			if (y1StartFound && !y1EndFound) {
 				y1e = ymax;
-				TFT_drawFastVLine_noFill(cx + x, cy + y1s, y1e - y1s + 1);
+				TFT_drawFastVLine(cx + x, cy + y1s, y1e - y1s + 1, color);
 			}
 			else if (y2StartFound && y2EndSearching) {
 				// we found start of lower line but we are still searching for the end
 				// which we haven't found in the loop so the last pixel in a column must be the end
-				TFT_drawFastVLine_noFill(cx + x, cy + y2s, ymax - y2s + 1);
+				TFT_drawFastVLine(cx + x, cy + y2s, ymax - y2s + 1, color);
 			}
 		}
 	}
@@ -1220,6 +1196,7 @@ static int rotatePropChar(int x, int y, int offset) {
   float sin_radian = sin(radian);
 
   uint8_t mask = 0x80;
+  spi_select(DISP_SPI);
   for (int j=0; j < fontChar.height; j++) {
     for (int i=0; i < fontChar.width; i++) {
       if (((i + (j*fontChar.width)) % 8) == 0) {
@@ -1230,12 +1207,13 @@ static int rotatePropChar(int x, int y, int offset) {
       int newX = (int)(x + (((offset + i) * cos_radian) - ((j+fontChar.adjYOffset)*sin_radian)));
       int newY = (int)(y + (((j+fontChar.adjYOffset) * cos_radian) + ((offset + i) * sin_radian)));
 
-      if ((ch & mask) != 0) TFT_drawPixel(newX,newY,_fg);
-      else if (!_transparent) TFT_drawPixel(newX,newY,_bg);
+      if ((ch & mask) != 0) TFT_drawPixel(newX,newY,_fg, 0);
+      else if (!_transparent) TFT_drawPixel(newX,newY,_bg, 0);
 
       mask >>= 1;
     }
   }
+  spi_deselect(DISP_SPI);
 
   return fontChar.xDelta+1;
 }
@@ -1254,6 +1232,7 @@ static int printProportionalChar(int x, int y) {
 
   // draw Glyph
   uint8_t mask = 0x80;
+  spi_deselect(DISP_SPI);
   for (j=0; j < fontChar.height; j++) {
     for (i=0; i < fontChar.width; i++) {
       if (((i + (j*fontChar.width)) % 8) == 0) {
@@ -1264,11 +1243,12 @@ static int printProportionalChar(int x, int y) {
       if ((ch & mask) !=0) {
         cx = (uint16_t)(x+fontChar.xOffset+i);
         cy = (uint16_t)(y+j+fontChar.adjYOffset);
-        TFT_drawPixel(cx, cy, _fg);
+        TFT_drawPixel(cx, cy, _fg, 0);
       }
       mask >>= 1;
     }
   }
+  spi_deselect(DISP_SPI);
 
   return fontChar.xDelta;
 }
@@ -1291,6 +1271,7 @@ static void printChar(uint8_t c, int x, int y) {
     TFT_fillRect(x, y, cfont.x_size, cfont.y_size, _bg);
   }
 
+  spi_select(DISP_SPI);
   for (j=0; j<cfont.y_size; j++) {
     for (k=0; k < fz; k++) {
       ch = cfont.font[temp+k];
@@ -1299,13 +1280,14 @@ static void printChar(uint8_t c, int x, int y) {
         if ((ch & mask) !=0) {
           cx = (uint16_t)(x+i+(k*8));
           cy = (uint16_t)(y+j);
-          TFT_drawPixel(cx, cy, _fg);
+          TFT_drawPixel(cx, cy, _fg, 0);
         }
         mask >>= 1;
       }
     }
     temp += (fz);
   }
+  spi_deselect(DISP_SPI);
 }
 
 // rotated fixed width character
@@ -1323,6 +1305,7 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
   else fz = cfont.x_size/8;
   temp=((c-cfont.offset)*((fz)*cfont.y_size))+4;
 
+  spi_deselect(DISP_SPI);
   for (j=0; j<cfont.y_size; j++) {
     for (zz=0; zz<(fz); zz++) {
       ch = cfont.font[temp+zz];
@@ -1331,13 +1314,14 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
         newx=(int)(x+(((i+(zz*8)+(pos*cfont.x_size))*cos_radian)-((j)*sin_radian)));
         newy=(int)(y+(((j)*cos_radian)+((i+(zz*8)+(pos*cfont.x_size))*sin_radian)));
 
-        if ((ch & mask) != 0) TFT_drawPixel(newx,newy,_fg);
-        else if (!_transparent) TFT_drawPixel(newx,newy,_bg);
+        if ((ch & mask) != 0) TFT_drawPixel(newx,newy,_fg, 0);
+        else if (!_transparent) TFT_drawPixel(newx,newy,_bg, 0);
         mask >>= 1;
       }
     }
     temp+=(fz);
   }
+  spi_deselect(DISP_SPI);
   // calculate x,y for the next char
   TFT_X = (int)(x + ((pos+1) * cfont.x_size * cos_radian));
   TFT_Y = (int)(y + ((pos+1) * cfont.x_size * sin_radian));
@@ -2036,10 +2020,11 @@ static UINT tjd_output (
 	uint16_t top = rect->top + dev->y;
 	uint16_t right = rect->right + dev->x;
 	uint16_t bottom = rect->bottom + dev->y;
+	uint16_t color;
 
 	if ((left >= _width) || (top >= _height)) return 1;	// out of screen area, return
 
-	int len = ((right-left+1) * (bottom-top+1))*2;		// calculate length of data
+	int len = ((right-left+1) * (bottom-top+1));		// calculate length of data
 
 	if ((len > 0) && (len <= (TFT_LINEBUF_MAX_SIZE))) {
 		uint16_t bufidx = 0;
@@ -2048,15 +2033,16 @@ static UINT tjd_output (
 		    for (x = left; x <= right; x++) {
 		    	// Clip to display area
 		    	if ((x < _width) && (y < _height)) {
-		    		tft_line[bufidx++] = *src++;
-		    		tft_line[bufidx++] = *src++;
+		    		color = (uint16_t)*src++;
+		    		color |= ((uint16_t)*src++) << 8;
+		    		tft_line[bufidx++] = color;
 		    	}
 		    	else src += 2;
 		    }
 	    }
 	    if (right > _width) right = _width-1;
 	    if (bottom > _height) bottom = _height-1;
-	    send_data(left, top, right, bottom, bufidx/2, tft_line);
+	    send_data(left, top, right, bottom, bufidx, tft_line);
 	}
 	else {
 		syslog(LOG_ERR, "max data size exceded: %d (%d,%d,%d,%d)", len, left,top,right,bottom);
@@ -2091,6 +2077,10 @@ static int ltft_jpg_image( lua_State* L )
 
     if (lua_gettop(L) > 4) {
     	if (luaL_checkinteger( L, 5 ) != 0) dbg = 1;
+    }
+
+    if (!tft_line) {
+        return luaL_error(L, "Line buffer not allocated");
     }
 
     if ((strcmp(fname, "CAM") == 0) || (strcmp(fname, "cam") == 0)) {
@@ -2228,7 +2218,6 @@ static int tft_image( lua_State* L )
   if (checkParam(5, L)) return 0;
 
   const char *fname;
-  char *basename;
   FILE *fhndl = 0;
   struct stat sb;
   uint32_t xrd = 0;
@@ -2260,13 +2249,12 @@ static int tft_image( lua_State* L )
 	  return 0;
   }
 
-  basename = strrchr(fname, '/');
-  if (basename == NULL) basename = (char *)fname;
-  else basename++;
-  if (strlen(basename) == 0) return 0;
-
   if (stat(fname, &sb) != 0) {
       return luaL_error(L, strerror(errno));
+  }
+
+  if (!tft_line) {
+      return luaL_error(L, "Line buffer not allocated");
   }
 
   fhndl = fopen(fname, "r");
@@ -2276,8 +2264,8 @@ static int tft_image( lua_State* L )
 
   disp_xsize *= 2;
   do { // read 1 image line from file and send to display
-	xrd = fread(tft_line, 1, 2*xsize, fhndl);  // read line from file
-	if (xrd != (2*xsize)) {
+	xrd = fread(tft_line, 2, xsize, fhndl);  // read line from file
+	if (xrd != xsize) {
 		syslog(LOG_ERR, "Error reading line: %d", xrd);
 		break;
 	}
@@ -2306,7 +2294,7 @@ static int tft_bmpimage( lua_State* L )
 	char *basename;
 	FILE *fhndl = 0;
 	struct stat sb;
-	uint8_t buf[960];  // max bytes per line = 3 * 320
+	uint8_t *buf = NULL;
 	uint32_t xrd = 0;
 	size_t len;
 
@@ -2325,14 +2313,27 @@ static int tft_bmpimage( lua_State* L )
 		return luaL_error(L, strerror(errno));
 	}
 
-	fhndl = fopen(fname, "r");
+    if (!tft_line) {
+	    return luaL_error(L, "Line buffer not allocated");
+    }
+
+    // Allocate buffer for reading one line of display data
+    // 3 * TFT_MAX_DISP_SIZE
+    buf = malloc(TFT_MAX_DISP_SIZE*3);
+    if (!buf) {
+	    return luaL_error(L, "File buffer allocation error");
+    }
+
+    fhndl = fopen(fname, "r");
 	if (!fhndl) {
+		free(buf);
 		return luaL_error(L, strerror(errno));
 	}
 
-	xrd = fread(buf, 1, 54, fhndl);  // read header
+    xrd = fread(buf, 1, 54, fhndl);  // read header
 	if (xrd != 54) {
 exithd:
+		free(buf);
 		fclose(fhndl);
 		syslog(LOG_ERR, "Error reading header");
 		return 0;
@@ -2379,7 +2380,7 @@ exithd:
 		goto exit;
 	}
 
-	int i,j;
+	int i;
 	while (ysize > 0) {
 		// Position at line start
 		// ** BMP images are stored in file from LAST to FIRST line
@@ -2394,16 +2395,15 @@ exithd:
 			syslog(LOG_ERR, "Error reading line: %d (%d)", y, xrd);
 			break;
 		}
-
-		j = 0;
+		// Convert colors to RGB565 format and place to line buffer
+		uint8_t *linebuf = (uint8_t *)tft_line;
 		for (i=0;i < xrd;i += 3) {
 			// get RGB888 and convert to RGB565
 			// BMP BYTES ORDER: B8-G8-R8 !!
-			tft_line[j]    = buf[i+2] & 0xF8;			// R5
-			tft_line[j]   |= buf[i+1] >> 5;				// G6 Hi
-			tft_line[j+1]  = (buf[i+1] << 3) & 0xE0;	// G6 Lo
-			tft_line[j+1] |= buf[i] >> 3;				// B5
-			j += 2;
+			*linebuf    = buf[i+2] & 0xF8;			// R5
+			*linebuf++ |= buf[i+1] >> 5;			// G6 Hi
+			*linebuf    = (buf[i+1] << 3) & 0xE0;	// G6 Lo
+			*linebuf++ |= buf[i] >> 3;				// B5
 		}
 	    send_data(x, y, xend, y, disp_xsize, tft_line);
 
@@ -2413,6 +2413,7 @@ exithd:
 	}
 
 exit:
+	free(buf);
 	fclose(fhndl);
 
 	return 0;
@@ -2702,7 +2703,7 @@ static int tft_putpixel( lua_State* L )
 
 	if (lua_gettop(L) > 2) color = getColor( L, 3 );
 
-	TFT_drawPixel(x,y,color);
+	TFT_drawPixel(x, y, color, 1);
 
 	return 0;
 }
@@ -2759,7 +2760,7 @@ static int tft_getline( lua_State* L )
 	if (out_type < 2) luaL_buffinit(L, &b);
     else lua_newtable(L);
 
-    read_data(x, y, x+len, y, len, tft_line);
+    read_data(x, y, x+len, y, len, (uint8_t *)tft_line);
 
 	if (out_type == 0) {
 		luaL_addlstring(&b, (const char *)tft_line, len);

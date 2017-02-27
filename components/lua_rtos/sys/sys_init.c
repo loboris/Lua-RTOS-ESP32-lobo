@@ -212,7 +212,7 @@ void _sys_init() {
 	delay(100);
 
 	// Print some startup info
-	console_clear();
+	//console_clear();
 
 	if (sleep_check != SLEEP_CHECK_ID) boot_count = 0;
 	else boot_count++;

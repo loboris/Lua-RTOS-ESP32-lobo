@@ -12,10 +12,11 @@
 #include "stdio.h"
 #include <sys/driver.h>
 #include <drivers/gpio.h>
+#include "soc/spi_reg.h"
 
 #if LUA_USE_TFT
 
-uint8_t tft_line[TFT_LINEBUF_MAX_SIZE] = {0};
+uint16_t *tft_line = NULL;
 uint16_t _width = 320;
 uint16_t _height = 240;
 
@@ -23,6 +24,8 @@ static int colstart = 0;
 static int rowstart = 0;	// May be overridden in init func
 
 static int disp_dc = PIN_NUM_DC;
+
+int TFT_type = -1;
 
 //==============================================================================
 
@@ -33,18 +36,211 @@ static int disp_dc = PIN_NUM_DC;
 
 // ======== Low level TFT SPI functions ========================================
 
+//---------------------------------------------------------
+static void IRAM_ATTR spi_transfer_wd(int unit, int bits) {
+	// Load send buffer
+	SET_PERI_REG_BITS(SPI_MOSI_DLEN_REG(unit), SPI_USR_MOSI_DBITLEN, bits, SPI_USR_MOSI_DBITLEN_S);
+	SET_PERI_REG_BITS(SPI_MISO_DLEN_REG(unit), SPI_USR_MISO_DBITLEN, 0, SPI_USR_MISO_DBITLEN_S);
+	// Start transfer
+	SET_PERI_REG_MASK(SPI_CMD_REG(unit), SPI_USR);
+}
+
+//--------------------------------------------------
+static void IRAM_ATTR spi_transfer_cmd(int8_t cmd) {
+	int unit = (DISP_SPI) & 3;
+
+	// Wait for SPI bus ready
+	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+    DC_CMD;
+    WRITE_PERI_REG((SPI_W0_REG(unit)), (uint32_t)(cmd));
+    spi_transfer_wd(unit, 7);
+}
+
+//-----------------------------------------------------------------------------------------------------------------
+static void IRAM_ATTR spi_transfer_data(int unit, uint8_t *data, uint8_t *indata, uint32_t wrlen, uint32_t rdlen) {
+	unit &= 3;
+	uint32_t bits;
+	uint32_t wd;
+	uint8_t bc;
+
+	if ((data) && (wrlen > 0)) {
+		uint8_t idx;
+		uint32_t count;
+
+		bits = 0;
+		idx = 0;
+		count = 0;
+		// Wait for SPI bus ready
+		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+		DC_DATA;
+
+		while (count < wrlen) {
+			wd = 0;
+			for (bc=0;bc<32;bc+=8) {
+				wd |= (uint32_t)data[count] << bc;
+				count++;
+				bits += 8;
+				if (count == wrlen) break;
+			}
+			WRITE_PERI_REG((SPI_W0_REG(unit) + (idx << 2)), wd);
+			idx++;
+			if (idx == 16) {
+				spi_transfer_wd(unit, bits-1);
+				bits = 0;
+				idx = 0;
+				if (count < wrlen) {
+					// Wait for SPI bus ready
+					while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+				}
+			}
+		}
+		if (bits > 0) {
+			spi_transfer_wd(unit, bits-1);
+		}
+	}
+
+	if (!indata) return;
+
+	uint8_t rdidx;
+	uint32_t rdcount = rdlen;
+	uint32_t rd_read = 0;
+    while (rdcount > 0) {
+    	//read data
+    	if (rdcount <= 64) bits = rdcount * 8;
+    	else bits = 64 * 8;
+
+    	// Wait for SPI bus ready
+		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+
+		SET_PERI_REG_BITS(SPI_MOSI_DLEN_REG(unit), SPI_USR_MOSI_DBITLEN, 0, SPI_USR_MOSI_DBITLEN_S);
+		SET_PERI_REG_BITS(SPI_MISO_DLEN_REG(unit), SPI_USR_MISO_DBITLEN, bits-1, SPI_USR_MISO_DBITLEN_S);
+		// Start transfer
+		SET_PERI_REG_MASK(SPI_CMD_REG(unit), SPI_USR);
+    	// Wait for SPI bus ready
+		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+
+		rdidx = 0;
+    	while (bits > 0) {
+			wd = READ_PERI_REG((SPI_W0_REG(unit) + (rdidx << 2)));
+			rdidx++;
+			for (bc=0;bc<32;bc+=8) {
+				indata[rd_read++] = (uint8_t)((wd >> bc) & 0xFF);
+				rdcount--;
+				bits -= 8;
+				if (rdcount == 0) break;
+			}
+    	}
+    }
+}
+
+//----------------------------------------------------------------------------------------------
+static void IRAM_ATTR spi_transfer_addrwin(uint8_t *x1, uint8_t *x2, uint8_t *y1, uint8_t *y2) {
+	int unit = (DISP_SPI) & 3;
+	uint32_t wd;
+
+	spi_transfer_cmd(TFT_CASET);
+	wd = (uint32_t)x1[1];
+	wd |= (uint32_t)x1[0] << 8;
+	wd |= (uint32_t)x2[1] << 16;
+	wd |= (uint32_t)x2[0] << 24;
+	// Wait for SPI bus ready
+	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+    DC_DATA;
+    WRITE_PERI_REG((SPI_W0_REG(unit)), wd);
+    spi_transfer_wd(unit, 31);
+
+    spi_transfer_cmd(TFT_PASET);
+	wd = (uint32_t)y1[1];
+	wd |= (uint32_t)y1[0] << 8;
+	wd |= (uint32_t)y2[1] << 16;
+	wd |= (uint32_t)y2[0] << 24;
+	// Wait for SPI bus ready
+	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+    DC_DATA;
+    WRITE_PERI_REG((SPI_W0_REG(unit)), wd);
+    spi_transfer_wd(unit, 31);
+}
+
+//--------------------------------------------------------
+static void IRAM_ATTR spi_transfer_pixel(uint8_t *color) {
+	int unit = (DISP_SPI) & 3;
+	uint32_t wd;
+	spi_transfer_cmd(TFT_RAMWR);
+
+	wd = (uint32_t)color[1];
+	wd |= (uint32_t)color[0] << 8;
+	// Wait for SPI bus ready
+	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+    DC_DATA;
+    WRITE_PERI_REG((SPI_W0_REG(unit)), wd);
+    spi_transfer_wd(unit, 15);
+}
+
+//---------------------------------------------------------------------------------------
+static void IRAM_ATTR spi_transfer_color_rep(uint8_t *color, uint32_t len, uint8_t rep) {
+	int unit = (DISP_SPI) & 3;
+	uint8_t idx;
+	uint32_t count;
+	uint32_t wd;
+	uint32_t bits;
+
+	spi_transfer_cmd(TFT_RAMWR);
+
+	bits = 0;
+	idx = 0;
+	count = 0;
+	// Wait for SPI bus ready
+	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+	DC_DATA;
+
+	while (count < len) {
+		if (rep) {
+			wd = (uint32_t)color[1];
+			wd |= (uint32_t)color[0] << 8;
+		}
+		else {
+			wd = (uint32_t)color[count<<1];
+			wd |= (uint32_t)color[(count<<1)+1] << 8;
+		}
+    	count++;
+    	bits += 16;
+    	if (count == len) {
+            WRITE_PERI_REG((SPI_W0_REG(unit) + (idx << 2)), wd);
+    		break;
+    	}
+		if (rep) wd |= wd << 16;
+		else {
+			wd |= (uint32_t)color[count<<1] << 16;
+			wd |= (uint32_t)color[(count<<1)+1] << 24;
+		}
+        WRITE_PERI_REG((SPI_W0_REG(unit) + (idx << 2)), wd);
+    	count++;
+    	bits += 16;
+    	idx++;
+    	if (idx == 16) {
+    	    spi_transfer_wd(unit, bits-1);
+    		bits = 0;
+    		idx = 0;
+    		// Wait for SPI bus ready
+    		if (count < len) {
+    			while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
+    		}
+    	}
+    }
+    if (bits > 0) spi_transfer_wd(unit, bits-1);
+
+}
 
 //Send a command to the TFT.
 //-----------------------------
 void tft_cmd(const uint8_t cmd)
 {
-	unsigned char command = cmd;
     taskDISABLE_INTERRUPTS();
 	spi_select(DISP_SPI);
 
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &command, NULL);
-	spi_deselect(DISP_SPI);
+    spi_transfer_cmd(cmd);
+
+    spi_deselect(DISP_SPI);
 
 	taskENABLE_INTERRUPTS();
 }
@@ -58,255 +254,133 @@ void tft_data(const uint8_t *data, int len)
 	taskDISABLE_INTERRUPTS();
 	spi_select(DISP_SPI);
 
-	DC_DATA;
-    spi_master_op(DISP_SPI, 1, len, (unsigned char *)data, NULL);
-	spi_deselect(DISP_SPI);
+    spi_transfer_data(DISP_SPI, (unsigned char *)data, NULL, len, 0);
+
+    spi_deselect(DISP_SPI);
 
 	taskENABLE_INTERRUPTS();
 }
 
 // Draw pixel on TFT on x,y position using given color
-//---------------------------------------------------
-void drawPixel(int16_t x, int16_t y, uint16_t color)
+//---------------------------------------------------------------
+void drawPixel(int16_t x, int16_t y, uint16_t color, uint8_t sel)
 {
-    taskDISABLE_INTERRUPTS();
+	uint16_t x1=x, x2=x+1;
+	uint16_t y1=y, y2=y+1;
 
-	spi_select(DISP_SPI);
+	taskDISABLE_INTERRUPTS();
+	if (sel) spi_select(DISP_SPI);
 
 	// ** Send address window **
-	uint8_t cmd = TFT_CASET;
-	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
+	spi_transfer_addrwin((uint8_t *)&x1, (uint8_t *)&x2, (uint8_t *)&y1, (uint8_t *)&y2);
 
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
+	// ** Send pixel color **
+	spi_transfer_pixel((uint8_t *)&color);
 
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-	cmd = TFT_PASET;
-	data = (y >> 8) | ((y & 0xFF) << 8) | (((y+1) >> 8) << 16) | (((y+1) & 0xFF) << 24);
-	DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-    // ** Send pixel color **
-	cmd = TFT_RAMWR;
-    uint16_t clr = SWAPBYTES(color);
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-    DC_DATA;
-    spi_master_op(DISP_SPI, 2, 1, (unsigned char *)(&clr), NULL);
-
-	spi_deselect(DISP_SPI);
-
+	if (sel) spi_deselect(DISP_SPI);
 	taskENABLE_INTERRUPTS();
 }
 
 #include <sys/delay.h>
-
-// Reads one pixel/color from the TFT's GRAM
-//--------------------------------------
-uint16_t readPixel(int16_t x, int16_t y)
-{
-	unsigned char color[4] = {0}, dummywr[4] = {0};
-
-	taskDISABLE_INTERRUPTS();
-
-	spi_select(DISP_SPI);
-
-	// ** Send address window **
-	uint8_t cmd = TFT_CASET;
-	uint32_t data = (x >> 8) | ((x & 0xFF) << 8) | (((x+1) >> 8) << 16) | (((x+1) & 0xFF) << 24);
-
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-	cmd = TFT_PASET;
-	data = (y >> 8) | ((y & 0xFF) << 8) | (((y+1) >> 8) << 16) | (((y+1) & 0xFF) << 24);
-	DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-    // ** GET pixel color **
-	cmd = TFT_RAMRD;
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-    DC_DATA;
-    //udelay(50);
-
-	spi_master_op(DISP_SPI, 1, 4, dummywr, color);
-
-	spi_deselect(DISP_SPI);
-
-    taskENABLE_INTERRUPTS();
-
-	printf("READ DATA: %02x, %02x, %02x, %02x\r\n", color[0],color[1],color[2],color[3]);
-    return (uint16_t)((uint16_t)((color[1] & 0xF8) << 8) | (uint16_t)((color[2] & 0xFC) << 3) | (uint16_t)(color[3] >> 3));
-}
 
 // Write 'len' 16-bit color data to TFT 'window' (x1,y2),(x2,y2)
 // uses the buffer to fill the color values
 //---------------------------------------------------------------------------------
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t color, uint32_t len)
 {
-    uint8_t *buf = NULL;
-    int tosend, i, sendlen;
-    uint32_t buflen;
-	uint8_t cmd;
-	uint32_t data;
-
-    if (len == 0) return;
-    else if (len <= TFT_MAX_BUF_LEN) buflen = len;
-    else buflen = TFT_MAX_BUF_LEN;
-
-    buf = malloc(buflen*2);
-    if (!buf) return;
-
+	uint16_t xx1=x1, xx2=x2;
+	uint16_t yy1=y1, yy2=y2;
+	uint16_t ccolor = color;
 	vTaskSuspendAll ();
 
-    // fill buffer with pixel color data
-	for (i=0;i<(buflen*2);i+=2) {
-		buf[i] = (uint8_t)(color >> 8);
-		buf[i+1] = (uint8_t)(color & 0x00FF);
-	}
-
-	taskDISABLE_INTERRUPTS();
-
 	spi_select(DISP_SPI);
-
 	// ** Send address window **
-	cmd = TFT_CASET;
-	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
+	spi_transfer_addrwin((uint8_t *)&xx1, (uint8_t *)&xx2, (uint8_t *)&yy1, (uint8_t *)&yy2);
 
-	cmd = TFT_PASET;
-	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
-	DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-    // ** Send repeated color **
-	cmd = TFT_RAMWR;
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-    taskENABLE_INTERRUPTS();
-
-    DC_DATA;
-	tosend = len;
-    while (tosend > 0) {
-        if (tosend > buflen) sendlen = buflen;
-    	else sendlen = tosend;
-
-        taskDISABLE_INTERRUPTS();
-        spi_master_op(DISP_SPI, 1, sendlen*2, buf, NULL);
-        taskENABLE_INTERRUPTS();
-
-		tosend -= sendlen;
-    }
+	// ** Send repeated pixel color **
+	spi_transfer_color_rep((uint8_t *)&ccolor, len, 1);
 
 	spi_deselect(DISP_SPI);
-
-    free(buf);
 
     xTaskResumeAll ();
 }
 
 // Write 'len' 16-bit color data to TFT 'window' (x1,y2),(x2,y2) from given buffer
-//--------------------------------------------------------------------
-void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
+//-------------------------------------------------------------------------
+void send_data(int x1, int y1, int x2, int y2, uint32_t len, uint16_t *buf)
 {
-	uint8_t cmd;
-	uint32_t data;
+	uint16_t xx1=x1, xx2=x2;
+	uint16_t yy1=y1, yy2=y2;
+	vTaskSuspendAll ();
+
+	spi_select(DISP_SPI);
+
+	// ** Send address window **
+	spi_transfer_addrwin((uint8_t *)&xx1, (uint8_t *)&xx2, (uint8_t *)&yy1, (uint8_t *)&yy2);
+
+	// ** Send pixel buffer **
+	spi_transfer_color_rep((uint8_t *)buf, len, 0);
+
+	spi_deselect(DISP_SPI);
+
+    xTaskResumeAll ();
+}
+
+// Reads one pixel/color from the TFT's GRAM
+//--------------------------------------
+uint16_t readPixel(int16_t x, int16_t y)
+{
+	uint16_t x1=x, x2=x+1;
+	uint16_t y1=y, y2=y+1;
+	uint8_t inbuf[4] = {0};
 
 	taskDISABLE_INTERRUPTS();
 
 	spi_select(DISP_SPI);
 
 	// ** Send address window **
-	cmd = TFT_CASET;
-	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
+	spi_transfer_addrwin((uint8_t *)&x1, (uint8_t *)&x2, (uint8_t *)&y1, (uint8_t *)&y2);
 
-	cmd = TFT_PASET;
-	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
-	DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-    // ** Send color data prepared in 'buf'  **
-	cmd = TFT_RAMWR;
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-    DC_DATA;
-    spi_master_op(DISP_SPI, 1, len*2, buf, NULL);
+    // ** GET pixel color **
+    spi_transfer_cmd(TFT_RAMRD);
+    spi_transfer_data(DISP_SPI, NULL, inbuf, 0, 4);
 
 	spi_deselect(DISP_SPI);
 
-	taskENABLE_INTERRUPTS();
+    taskENABLE_INTERRUPTS();
+
+	printf("READ DATA: %02x, %02x, %02x, %02x\r\n", inbuf[0],inbuf[1],inbuf[2],inbuf[3]);
+    return (uint16_t)((uint16_t)((inbuf[1] & 0xF8) << 8) | (uint16_t)((inbuf[2] & 0xFC) << 3) | (uint16_t)(inbuf[3] >> 3));
 }
 
 // Reads pixels/colors from the TFT's GRAM
 //-------------------------------------------------------------------
 void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
 {
-	uint8_t cmd;
-	uint32_t data;
+	uint16_t xx1=x1, xx2=x2;
+	uint16_t yy1=y1, yy2=y2;
 
 	memset(buf, 0, len*2);
 
-	unsigned char *rbuf = malloc((len*3)+1);
+	uint8_t *rbuf = malloc((len*3)+1);
     if (!rbuf) return;
+
     memset(rbuf, 0, (len*3)+1);
 
-	taskDISABLE_INTERRUPTS();
+	vTaskSuspendAll ();
 
 	spi_select(DISP_SPI);
 
     // ** Send address window **
-	cmd = TFT_CASET;
-	data = (x1 >> 8) | ((x1 & 0xFF) << 8) | ((x2 >> 8) << 16) | ((x2 & 0xFF) << 24);
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
-
-	cmd = TFT_PASET;
-	data = (y1 >> 8) | ((y1 & 0xFF) << 8) | ((y2 >> 8) << 16) | ((y2 & 0xFF) << 24);
-	DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-	DC_DATA;
-    spi_master_op(DISP_SPI, 4, 1, (unsigned char *)(&data), NULL);
+	spi_transfer_addrwin((uint8_t *)&xx1, (uint8_t *)&xx2, (uint8_t *)&yy1, (uint8_t *)&yy2);
 
     // ** GET pixels/colors **
-	cmd = TFT_RAMRD;
-    DC_CMD;
-    spi_master_op(DISP_SPI, 1, 1, &cmd, NULL);
-
-    DC_DATA;
-    spi_master_op(DISP_SPI, 1, (len*3)+1, rbuf, rbuf);
+    spi_transfer_cmd(TFT_RAMRD);
+    spi_transfer_data(DISP_SPI, NULL, rbuf, 0, (len*3)+1);
 
 	spi_deselect(DISP_SPI);
 
-    taskENABLE_INTERRUPTS();
+    xTaskResumeAll ();
 
     int idx = 0;
     uint16_t color;
@@ -321,15 +395,13 @@ void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
 //-----------------------------------
 uint16_t touch_get_data(uint8_t type)
 {
-	uint8_t txbuf[4] = {0};
-	uint8_t rxbuf[4] = {0};
-	//uint16_t tdata = 0;
+	uint8_t cmd = type;
+	uint8_t rxbuf[2] = {0};
 
 	taskDISABLE_INTERRUPTS();
 	spi_select(TOUCH_SPI);
 
-	txbuf[0]=type;
-    spi_master_op(TOUCH_SPI, 1, 4, txbuf, rxbuf);
+    spi_transfer_data(TOUCH_SPI, &cmd, rxbuf, 1, 2);
 
 	spi_deselect(TOUCH_SPI);
 
@@ -337,21 +409,23 @@ uint16_t touch_get_data(uint8_t type)
 
     //if ((rxbuf[2] & 0x0F) == 0) tdata = (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
 
-    return (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
+    return (((uint16_t)(rxbuf[0] << 8) | (uint16_t)(rxbuf[1])) >> 4);
 }
 
-
+/*
+// fill 'tft_line' with specified color
 //---------------------------------------------
 void fill_tftline(uint16_t color, uint16_t len)
 {
-	uint16_t n = len * 2;
+	if (!tft_line) return;
+	uint16_t n = len;
 	if (n > TFT_LINEBUF_MAX_SIZE) n = TFT_LINEBUF_MAX_SIZE;
 
-	for (uint16_t i=0;i<n;i+=2) {
-		tft_line[i] = (uint8_t)(color >> 8);
-		tft_line[i+1] = (uint8_t)(color & 0x00FF);
+	for (uint16_t i=0;i<n;i++) {
+		tft_line[i] = color;
 	}
 }
+*/
 
 //======== Display initialization data =========================================
 
@@ -669,11 +743,13 @@ void tft_set_defaults() {
     gpio_pin_output(disp_dc);
     spi_set_mode(DISP_SPI, 0);
     spi_set_speed(DISP_SPI, 20000);
+    spi_set_duplex(DISP_SPI, 0);
 
     spi_pin_config(TOUCH_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_TCS);
     spi_init(TOUCH_SPI, 1);
     spi_set_mode(TOUCH_SPI, 2);
     spi_set_speed(TOUCH_SPI, 2500);
+    spi_set_duplex(TOUCH_SPI, 0);
 }
 
 //-----------------------------------------------------------------------------------------------------------------------------------
@@ -684,11 +760,13 @@ void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, uns
     spi_init(DISP_SPI, 1);
     spi_set_mode(DISP_SPI, 0);
     spi_set_speed(DISP_SPI, 20000);
+    spi_set_duplex(DISP_SPI, 0);
 
     spi_pin_config(TOUCH_SPI, sdi, sdo, sck, tcs);
     spi_init(TOUCH_SPI, 1);
     spi_set_mode(TOUCH_SPI, 2);
     spi_set_speed(TOUCH_SPI, 2500);
+    spi_set_duplex(TOUCH_SPI, 0);
 }
 
 // Init tft SPI interface
@@ -757,7 +835,10 @@ driver_error_t *tft_spi_init(uint8_t typ) {
 	#endif
 
 	spi_deselect(DISP_SPI);
-    return NULL;
+
+	if (!tft_line) tft_line = malloc(TFT_LINEBUF_MAX_SIZE*2);
+
+	return NULL;
 }
 
 #endif

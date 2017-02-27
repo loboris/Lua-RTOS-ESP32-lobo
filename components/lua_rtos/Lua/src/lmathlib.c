@@ -30,7 +30,8 @@
 #define l_srand(x)	srandom(x)
 #define L_RANDMAX	2147483647	/* (2^31 - 1), following POSIX */
 #else
-#define l_rand()	esp_random()
+//#define l_rand()	esp_random()
+#define l_rand()	rand()
 #define l_srand(x)	srand(x)
 #define L_RANDMAX	RAND_MAX
 #endif

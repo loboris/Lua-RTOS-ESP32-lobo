@@ -47,10 +47,10 @@
   #define TFT_RST0  gpio_set_level(PIN_NUM_RST, 0)
 #endif
 
-#define TFT_MAX_BUF_LEN 1920		// max spi data buffer size in words (uint16_t) used for sending repeated color
-#define TFT_LINEBUF_MAX_SIZE 640	// line buffer maximum size in bytes
+#define TFT_MAX_DISP_SIZE		480					// maximum display dimension in pixel
+#define TFT_LINEBUF_MAX_SIZE	TFT_MAX_DISP_SIZE	// line buffer maximum size in words (uint16_t)
 
-#define tft_color(color) ( (uint16_t)((color >> 8) | (color << 8)) )
+//#define tft_color(color) ( (uint16_t)((color >> 8) | (color << 8)) )
 #define swap(a, b) { int16_t t = a; a = b; b = t; }
 
 // The ILI9341 needs a bunch of command/argument values to be initialized. They are stored in this struct.
@@ -237,9 +237,10 @@ typedef struct {
 #define bitmapdatatype uint16_t *
 
 
+int TFT_type;
 uint16_t _width;
 uint16_t _height;
-uint8_t tft_line[640];
+uint16_t *tft_line;
 
 void tft_set_defaults();
 void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc, unsigned char tcs);
@@ -248,12 +249,12 @@ driver_error_t *tft_spi_init(uint8_t typ);
 
 void tft_cmd(const uint8_t cmd);
 void tft_data(const uint8_t *data, int len);
-void send_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
-void drawPixel(int16_t x, int16_t y, uint16_t color);
+void send_data(int x1, int y1, int x2, int y2, uint32_t len, uint16_t *buf);
+void drawPixel(int16_t x, int16_t y, uint16_t color, uint8_t sel);
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t data, uint32_t len);
 void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
 uint16_t readPixel(int16_t x, int16_t y);
-void fill_tftline(uint16_t color, uint16_t len);
+//void fill_tftline(uint16_t color, uint16_t len);
 
 uint16_t touch_get_data(uint8_t type);
 
