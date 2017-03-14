@@ -1,5 +1,5 @@
 /*
-** $Id: lutf8lib.c,v 1.15 2015/03/28 19:16:55 roberto Exp $
+** $Id: lutf8lib.c,v 1.16 2016/12/22 13:08:50 roberto Exp $
 ** Standard library for UTF-8 manipulation
 ** See Copyright Notice in lua.h
 */
@@ -194,7 +194,7 @@ static int byteoffset (lua_State *L) {
     lua_pushinteger(L, posi + 1);
   else  /* no such character */
     lua_pushnil(L);
-  return 1;  
+  return 1;
 }
 
 
@@ -235,22 +235,40 @@ static int iter_codes (lua_State *L) {
 #define UTF8PATT	"[\0-\x7F\xC2-\xF4][\x80-\xBF]*"
 
 
-static const luaL_Reg funcs[] = {
-  {"offset", byteoffset},
-  {"codepoint", codepoint},
-  {"char", utfchar},
-  {"len", utflen},
-  {"codes", iter_codes},
-  /* placeholders */
-  {"charpattern", NULL},
-  {NULL, NULL}
+#include "modules.h"
+
+#if LUA_USE_ROTABLE
+static int lua_utf8_index (lua_State *L) {
+  const char *keyname = luaL_checkstring(L, 2);
+  if (!strcmp(keyname, "charpattern")) {
+	lua_pushlstring(L, UTF8PATT, sizeof(UTF8PATT)/sizeof(char) - 1);
+    return 1;
+  }
+
+  return 0;
+}
+#endif
+
+static const LUA_REG_TYPE funcs[] = {
+  { LSTRKEY( "offset"      ),			LFUNCVAL( byteoffset     ) },
+  { LSTRKEY( "codepoint"   ),			LFUNCVAL( codepoint      ) },
+  { LSTRKEY( "char"        ),			LFUNCVAL( utfchar        ) },
+  { LSTRKEY( "len"         ),			LFUNCVAL( utflen         ) },
+  { LSTRKEY( "codes"       ),			LFUNCVAL( iter_codes     ) },
+  { LSTRKEY( "__metatable" ),	        LROVAL  ( funcs          ) },
+  { LSTRKEY( "__index"     ),           LFUNCVAL( lua_utf8_index ) },
+  { LNILKEY, LNILVAL }
 };
 
 
 LUAMOD_API int luaopen_utf8 (lua_State *L) {
-  luaL_newlib(L, funcs);
+#if !LUA_USE_ROTABLE
   lua_pushlstring(L, UTF8PATT, sizeof(UTF8PATT)/sizeof(char) - 1);
   lua_setfield(L, -2, "charpattern");
   return 1;
+#else
+  return 0;
+#endif
 }
 
+MODULE_REGISTER_MAPPED(UTF8, utf8, funcs, luaopen_utf8);

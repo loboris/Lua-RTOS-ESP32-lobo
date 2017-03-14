@@ -8,7 +8,10 @@
 #include <unistd.h> 
 #include <limits.h>
 #include <stdio.h>
+#include <errno.h>
+#include <string.h>
 
+#include <sys/stat.h>
 #include <sys/syslog.h>
 #include <drivers/uart.h>
 #include "sys/status.h"
@@ -20,6 +23,39 @@
 #define l_unlockfile(f)	((void)0)
 
 int ioctl(int fd, unsigned long request, ...);
+
+static int f_attributes(lua_State *L) {
+    const char *path = luaL_checkstring(L, 1);
+    char type[16];
+    char ftime[24];
+    lua_Integer size = 0;
+    struct tm *tm_info;
+
+    struct stat s;
+
+    strcpy(type, "notfound");
+    strcpy(ftime, "01/01/2000 00:00");
+
+    if (stat(path, &s) >= 0) {
+		if (S_ISDIR(s.st_mode)) {
+			strcpy(type, "directory");
+		}
+		else if (S_ISREG(s.st_mode)) {
+			strcpy(type, "file");
+		}
+
+		size = s.st_size;
+
+		tm_info = localtime(&s.st_mtime);
+		strftime(ftime, 24, "%d/%m/%Y %R", tm_info);
+    }
+
+    lua_pushstring(L, type);
+    lua_pushinteger(L, size);
+    lua_pushstring(L, ftime);
+
+	return 2;
+}
 
 static int read_line (lua_State *L, FILE *f, int chop) {
   luaL_Buffer b;
@@ -63,11 +99,18 @@ static int f_receive (lua_State *L) {
     unsigned char chunk[255];
     unsigned char *cchunk;
     unsigned char chunk_size;
-  
+
+    int buff_size = 10240;
+
     if (strlen(filename) == 0) return 0;
 
     FILE *f= fopen(filename, "w");
     if (f) {
+    	// Try to allocate a great buffer for output stream
+    	while (setvbuf(f , NULL, _IOFBF, buff_size) != 0) {
+    		buff_size = buff_size - 1024;
+    	}
+
         uart_lock(CONSOLE_UART);
         
         // Clear received buffer

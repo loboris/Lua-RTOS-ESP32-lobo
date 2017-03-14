@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, pthread wrapper for FreeRTOS
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -29,7 +29,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_THREAD
+#if CONFIG_LUA_RTOS_LUA_USE_THREAD
 
 #include "lua.h"
 #include "lapi.h"
@@ -38,6 +38,7 @@
 #include "lmem.h"
 #include "ldo.h"
 #include "thread.h"
+#include "error.h"
 
 #include <unistd.h>
 #include <stdlib.h>
@@ -47,6 +48,28 @@
 #include <errno.h>
 
 #include <pthread.h>
+
+#include <drivers/uart.h>
+#include <sys/console.h>
+
+// Module errors
+#define LUA_THREAD_ERR_NOT_ENOUGH_MEMORY    (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  0)
+#define LUA_THREAD_ERR_NOT_ALLOWED          (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  1)
+#define LUA_THREAD_ERR_NON_EXISTENT         (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  2)
+#define LUA_THREAD_ERR_CANNOT_START         (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  3)
+#define LUA_THREAD_ERR_INVALID_STACK_SIZE   (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  4)
+#define LUA_THREAD_ERR_INVALID_PRIORITY     (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  5)
+#define LUA_THREAD_ERR_INVALID_CPU_AFFINITY (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  6)
+#define LUA_THREAD_ERR_CANNOT_MONITOR_AS_TABLE (DRIVER_EXCEPTION_BASE(THREAD_DRIVER_ID) |  7)
+
+DRIVER_REGISTER_ERROR(THREAD, thread, NotEnoughtMemory, "not enough memory", LUA_THREAD_ERR_NOT_ENOUGH_MEMORY);
+DRIVER_REGISTER_ERROR(THREAD, thread, NotAllowed, "not allowed", LUA_THREAD_ERR_NOT_ALLOWED);
+DRIVER_REGISTER_ERROR(THREAD, thread, NonExistentThread, "non-existent thread", LUA_THREAD_ERR_NON_EXISTENT);
+DRIVER_REGISTER_ERROR(THREAD, thread, CannotStart, "cannot start thread", LUA_THREAD_ERR_CANNOT_START);
+DRIVER_REGISTER_ERROR(THREAD, thread, InvalidStackSize, "invalid stack size", LUA_THREAD_ERR_INVALID_STACK_SIZE);
+DRIVER_REGISTER_ERROR(THREAD, thread, InvalidPriority, "invalid priority", LUA_THREAD_ERR_INVALID_PRIORITY);
+DRIVER_REGISTER_ERROR(THREAD, thread, InvalidCPUAffinity, "invalid CPU affinity", LUA_THREAD_ERR_INVALID_CPU_AFFINITY);
+DRIVER_REGISTER_ERROR(THREAD, thread, CannotMonitorAsTable, "you can't monitor thread as table", LUA_THREAD_ERR_CANNOT_MONITOR_AS_TABLE);
 
 #define LTHREAD_STATUS_RUNNING   1
 #define LTHREAD_STATUS_SUSPENDED 2
@@ -99,6 +122,9 @@ static int thread_suspend_pthreads(lua_State *L, int thid) {
     struct lthread *thread;
     int res, idx;
     
+    // For now this is not allowd in ESP32
+    return luaL_exception_extended(L, LUA_THREAD_ERR_NOT_ALLOWED, "in ESP32");
+
     if (thid) {
         idx = thid;
     } else {
@@ -108,7 +134,7 @@ static int thread_suspend_pthreads(lua_State *L, int thid) {
     while (idx >= 0) {
         res = list_get(&lthread_list, idx, (void **)&thread);
         if (res) {
-            return luaL_error(L, "can't suspend thread %d", idx);
+        	luaL_exception(L, LUA_THREAD_ERR_NON_EXISTENT);
         }
 
         // If thread is created, suspend
@@ -133,6 +159,9 @@ static int thread_resume_pthreads(lua_State *L, int thid) {
     struct lthread *thread;
     int res, idx;
     
+    // For now this is not allowd in ESP32
+    return luaL_exception_extended(L, LUA_THREAD_ERR_NOT_ALLOWED, "in ESP32");
+
     if (thid) {
         idx = thid;
     } else {
@@ -142,7 +171,7 @@ static int thread_resume_pthreads(lua_State *L, int thid) {
     while (idx >= 0) {
         res = list_get(&lthread_list, idx, (void **)&thread);
         if (res) {
-            return luaL_error(L, "can't resume thread %d", idx);
+        	luaL_exception(L, LUA_THREAD_ERR_NON_EXISTENT);
         }
 
         // If thread is created, suspend
@@ -176,7 +205,7 @@ static int thread_stop_pthreads(lua_State *L, int thid) {
     while (idx >= 0) {
         res = list_get(&lthread_list, idx, (void **)&thread);
         if (res) {
-            return luaL_error(L, "can't stop thread %d", idx);
+        	luaL_exception(L, LUA_THREAD_ERR_NON_EXISTENT);
         }
 
         // If thread is created, suspend
@@ -197,14 +226,14 @@ static int thread_stop_pthreads(lua_State *L, int thid) {
         }
     }  
     
-    if (!thid) {
-    	#if LUA_USE_PWM
-        lua_getglobal(L, "pwm"); 
-        lua_getfield(L, -1, "down");
-        lua_remove(L, -2);
-        lua_pcall(L, 0, 0, 0);
-        #endif 
-    }
+    //if (!thid) {
+    //	#if CONFIG_LUA_RTOS_LUA_USE_PWM
+    //    lua_getglobal(L, "pwm");
+    //    lua_getfield(L, -1, "down");
+    //    lua_remove(L, -2);
+    //   lua_pcall(L, 0, 0, 0);
+    //    #endif
+    //}
     
 	// Do a garbage collection
 	//lua_lock(L);
@@ -222,58 +251,159 @@ static int thread_list(lua_State *L) {
     struct lthread *thread;
     int idx;
     char status[5];
+	uint8_t table = 0;
+	uint8_t monitor = 0;
 
-    const char *format = luaL_optstring(L, 1, "");
+	// Check if user wants result as a table, or wants result
+	// on the console
+	if (lua_gettop(L) == 1) {
+		luaL_checktype(L, 1, LUA_TBOOLEAN);
+		if (lua_toboolean(L, 1)) {
+			table = 1;
+		}
+	}
 
-    if (strcmp(format,"*n") == 0) {
-        // List only number of current threads
-        int n= 0;
+	// Check if user wants to monitor threads at regular intervals
+	if (lua_gettop(L) == 2) {
+		luaL_checktype(L, 2, LUA_TBOOLEAN);
+		if (lua_toboolean(L, 2)) {
+			monitor = 1;
+		}
+	}
 
-        idx = list_first(&lthread_list);
-        while (idx >= 0) {
-            n++;
-            idx = list_next(&lthread_list, idx);
-        }       
-        
-        lua_pushinteger(L, n);
-        return 1;
-    } else {
-        printf("THID\tNAME\t\tSTATUS\tCORE\tTIME\n");
+	if (table && monitor) {
+	    return luaL_exception_extended(L, LUA_THREAD_ERR_CANNOT_MONITOR_AS_TABLE, NULL);
+	}
 
-        // For each lthread in list ...
-        idx = list_first(&lthread_list);
-        while (idx >= 0) {
-            list_get(&lthread_list, idx, (void **)&thread);
 
-            // Get status
-            switch (thread->status) {
-                case LTHREAD_STATUS_RUNNING: strcpy(status,"run "); break;
-                case LTHREAD_STATUS_SUSPENDED: strcpy(status,"susp"); break;
-                default:
-                    strcpy(status,"----");
+	if (monitor) {
+		console_clear();
+		console_hide_cursor();
+	}
 
-            }
+monitor_loop:
 
-            printf("%d\t%s\t\t%s\t%d\t%d\n", idx, "", status, _pthread_core(thread->thread),0);
+	if (monitor) {
+		console_gotoxy(0,0);
+		printf("Monitoring threads every 0.5 seconds\n\n");
+	}
 
-            idx = list_next(&lthread_list, idx);
-        }        
-    }
+	if (!table) {
+		printf("-----------------------------------------------\n");
+		printf("     |        |      |           STACK         \n");
+		printf("THID | STATUS | CORE |   SIZE     FREE     USED\n");
+		printf("-----------------------------------------------\n");
+	} else {
+		lua_createtable(L, 0, 0);
+	}
+
+	// For each lthread in list ...
+	int i = 0;
+	idx = list_first(&lthread_list);
+	int stack, stack_free;
+
+	while (idx >= 0) {
+		list_get(&lthread_list, idx, (void **)&thread);
+
+		// Get status
+		switch (thread->status) {
+			case LTHREAD_STATUS_RUNNING: strcpy(status,"run"); break;
+			case LTHREAD_STATUS_SUSPENDED: strcpy(status,"susp"); break;
+			default:
+				strcpy(status,"");
+
+		}
+
+		stack = _pthread_stack(thread->thread);
+		stack_free = _pthread_stack_free(thread->thread);
+
+		if (!table) {
+			printf(
+					"% 4d   %-6s   % 4d   % 6d   % 6d   % 6d   \n",
+					idx, status,
+					_pthread_core(thread->thread),
+					stack,
+					stack_free,
+					stack - stack_free
+			);
+		} else {
+			lua_pushinteger(L, i);
+
+			lua_createtable(L, 0, 4);
+
+			lua_pushinteger(L, idx);
+	        lua_setfield (L, -2, "thid");
+
+	        lua_pushstring(L, status);
+	        lua_setfield (L, -2, "status");
+
+	        lua_pushinteger(L, _pthread_core(thread->thread));
+	        lua_setfield (L, -2, "core");
+
+	        lua_pushinteger(L, _pthread_stack_free(thread->thread));
+	        lua_setfield (L, -2, "stack");
+
+	        lua_settable(L,-3);
+		}
+
+		idx = list_next(&lthread_list, idx);
+		i++;
+	}
+
+	if (monitor) {
+		printf("\n\nPress q for exit");
+
+		char press;
+
+		uart_read(CONSOLE_UART, &press, 1);
+		if ((press != 'q') && (press != 'Q')) {
+			usleep(500 * 1000);
+			goto monitor_loop;
+		} else {
+			console_show_cursor();
+			printf("\r\n");
+		}
+	}
     
-    return 0;
+    return table;
 }
 
 static int new_thread(lua_State* L, int run) {
     struct lthread *thread;
     pthread_attr_t attr;
+	struct sched_param sched;
     int res, idx;
     pthread_t id;
     int retries;
-    
+
+    // Get stack size, priotity and cpu affinity
+    int stack = luaL_optinteger(L, 2, CONFIG_LUA_RTOS_LUA_THREAD_STACK_SIZE);
+    int priority = luaL_optinteger(L, 3, CONFIG_LUA_RTOS_LUA_THREAD_PRIORITY);
+    int affinity = luaL_optinteger(L, 4, CONFIG_LUA_RTOS_LUA_THREAD_CPU);
+
+    // Sanity checks
+    if (stack < PTHREAD_STACK_MIN) {
+    	return luaL_exception(L, LUA_THREAD_ERR_INVALID_STACK_SIZE);
+    }
+
+    if ((priority < ESP_TASK_PRIO_MIN + 3) || (priority > ESP_TASK_PRIO_MAX)) {
+    	return luaL_exception(L, LUA_THREAD_ERR_INVALID_PRIORITY);
+    }
+
+    if ((affinity < 0) || (affinity > 1)) {
+    	return luaL_exception(L, LUA_THREAD_ERR_INVALID_CPU_AFFINITY);
+    }
+
+    // TO DO
+    // Something is wrong somewhere. We need to do this for now.
+    while (lua_gettop(L) > 1) {
+        lua_remove(L, -1);
+    }
+
     // Allocate space for lthread info
     thread = (struct lthread *)malloc(sizeof(struct lthread));
     if (!thread) {
-        return luaL_error(L, "not enough memory");
+    	return luaL_exception(L, LUA_THREAD_ERR_NOT_ENOUGH_MEMORY);
     }
     
     // Check for argument is a function, and store it's reference
@@ -293,12 +423,23 @@ static int new_thread(lua_State* L, int run) {
     res = list_add(&lthread_list, thread, &idx);
     if (res) {
         free(thread);
-        return luaL_error(L, "not enough memory");
+    	return luaL_exception(L, LUA_THREAD_ERR_NOT_ENOUGH_MEMORY);
     }
 
-    // Create pthread
-    pthread_attr_init(&attr);
-    pthread_attr_setstacksize(&attr, LUA_THREAD_STACK);
+	// Init thread attributes
+	pthread_attr_init(&attr);
+
+	// Set stack size
+    pthread_attr_setstacksize(&attr, stack);
+
+    // Set priority
+    sched.sched_priority = priority;
+    pthread_attr_setschedparam(&attr, &sched);
+
+    // Set CPU
+    cpu_set_t cpu_set = affinity;
+    pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpu_set);
+
 
     if (run)  {
         pthread_attr_setinitialstate(&attr, PTHREAD_INITIAL_STATE_RUN);
@@ -323,7 +464,7 @@ retry:
         
         list_remove(&lthread_list, idx, 1);
         
-        return luaL_error(L, "can't start pthread (%s)",strerror(errno));
+        return luaL_exception_extended(L, LUA_THREAD_ERR_CANNOT_START, strerror(errno));
     }
 
     // Update thread status
@@ -418,19 +559,25 @@ static int thread_status(lua_State* L) {
 
 #include "modules.h"
 
+extern LUA_REG_TYPE thread_error_map[];
+
 static const LUA_REG_TYPE thread[] = {
-    { LSTRKEY( "status" ),			LFUNCVAL( thread_status ) },
-    { LSTRKEY( "create" ),			LFUNCVAL( thread_create ) },
-    { LSTRKEY( "start" ),			LFUNCVAL( thread_start ) },
+    { LSTRKEY( "status"  ),			LFUNCVAL( thread_status  ) },
+    { LSTRKEY( "create"  ),			LFUNCVAL( thread_create  ) },
+    { LSTRKEY( "start"   ),			LFUNCVAL( thread_start   ) },
     { LSTRKEY( "suspend" ),			LFUNCVAL( thread_suspend ) },
-    { LSTRKEY( "resume" ),			LFUNCVAL( thread_resume ) },
-    { LSTRKEY( "stop" ),			LFUNCVAL( thread_stop ) },
-    { LSTRKEY( "list" ),			LFUNCVAL( thread_list ) },
-    { LSTRKEY( "sleep" ),			LFUNCVAL( thread_sleep ) },
+    { LSTRKEY( "resume"  ),			LFUNCVAL( thread_resume  ) },
+    { LSTRKEY( "stop"    ),			LFUNCVAL( thread_stop    ) },
+    { LSTRKEY( "list"    ),			LFUNCVAL( thread_list    ) },
+    { LSTRKEY( "sleep"   ),			LFUNCVAL( thread_sleep   ) },
     { LSTRKEY( "sleepms" ),			LFUNCVAL( thread_sleepms ) },
     { LSTRKEY( "sleepus" ),			LFUNCVAL( thread_sleepus ) },
-    { LSTRKEY( "usleep" ),			LFUNCVAL( thread_sleepus ) },
-    { LNILKEY, LNILVAL }
+    { LSTRKEY( "usleep"  ),			LFUNCVAL( thread_sleepus ) },
+
+	// Error definitions
+	{LSTRKEY("error"),  			LROVAL( thread_error_map )},
+
+	{ LNILKEY, LNILVAL }
 };
 
 int luaopen_thread(lua_State* L) {
@@ -445,5 +592,6 @@ int luaopen_thread(lua_State* L) {
 } 
  
 MODULE_REGISTER_MAPPED(THREAD, thread, thread, luaopen_thread);
+DRIVER_REGISTER(THREAD,thread,NULL,NULL,NULL);
 
 #endif

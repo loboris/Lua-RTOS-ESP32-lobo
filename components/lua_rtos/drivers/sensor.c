@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, sensor driver
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -29,7 +29,7 @@
 
 #include "luartos.h"
 
-#if USE_SENSORS
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
 
 #include <string.h>
 
@@ -42,6 +42,7 @@
 #include <drivers/gpio.h>
 #include <drivers/owire.h>
 #include <drivers/i2c.h>
+#include <drivers/power_bus.h>
 
 // This variable is defined at linker time
 extern const sensor_t sensors[];
@@ -62,28 +63,22 @@ struct list sensor_list;
 /*
  * Helper functions
  */
-#if USE_ADC
 static driver_error_t *sensor_adc_setup(sensor_instance_t *unit) {
 	driver_unit_lock_error_t *lock_error = NULL;
 	driver_error_t *error;
 
-    // Lock ADC channel
+	// Lock ADC channel
     if ((lock_error = driver_lock(SENSOR_DRIVER, unit->unit, ADC_DRIVER, unit->setup.adc.channel))) {
     	// Revoked lock on ADC channel
     	return driver_lock_error(SENSOR_DRIVER, lock_error);
     }
 
-	if ((error = adc_setup(unit->setup.adc.unit))) {
-		return error;
-	}
-
-	if ((error = adc_setup_channel(unit->setup.adc.channel, unit->setup.adc.resolution, ADC_ATTEN_0db))) {
+	if ((error = adc_setup(unit->setup.adc.unit, unit->setup.adc.channel, 0, unit->setup.adc.resolution))) {
 		return error;
 	}
 
 	return NULL;
 }
-#endif
 
 static driver_error_t *sensor_gpio_setup(sensor_instance_t *unit) {
 	driver_unit_lock_error_t *lock_error = NULL;
@@ -100,7 +95,6 @@ static driver_error_t *sensor_gpio_setup(sensor_instance_t *unit) {
 	return NULL;
 }
 
-#if USE_OWIRE
 static driver_error_t *sensor_owire_setup(sensor_instance_t *unit) {
 	driver_error_t *error;
 
@@ -135,9 +129,7 @@ static driver_error_t *sensor_owire_setup(sensor_instance_t *unit) {
 
 	return NULL;
 }
-#endif
 
-#if USE_I2C
 static driver_error_t *sensor_i2c_setup(sensor_instance_t *unit) {
 	driver_error_t *error;
 
@@ -146,7 +138,6 @@ static driver_error_t *sensor_i2c_setup(sensor_instance_t *unit) {
     }
 	return NULL;
 }
-#endif
 
 /*
  * Operation functions
@@ -224,16 +215,10 @@ driver_error_t *sensor_setup(const sensor_t *sensor, sensor_setup_t *setup, sens
 
 	// Setup sensor interface
 	switch (sensor->interface) {
-#if USE_ADC
 		case ADC_INTERFACE: error = sensor_adc_setup(instance);break;
-#endif
 		case GPIO_INTERFACE: error = sensor_gpio_setup(instance);break;
-#if USE_OWIRE
 		case OWIRE_INTERFACE: error = sensor_owire_setup(instance);break;
-#endif
-#if USE_I2C
 		case I2C_INTERFACE: error = sensor_i2c_setup(instance);break;
-#endif
 		default:
 			return driver_setup_error(SENSOR_DRIVER, SENSOR_ERR_INTERFACE_NOT_SUPPORTED, NULL);
 			break;
@@ -266,7 +251,11 @@ driver_error_t *sensor_acquire(sensor_instance_t *unit) {
 	sensor_value_t *value = NULL;
 	int i = 0;
 
-	// Allocate space for sensor data
+	#if CONFIG_LUA_RTOS_USE_POWER_BUS
+	pwbus_on();
+	#endif
+
+// Allocate space for sensor data
 	if (!(value = calloc(1, sizeof(sensor_value_t) * SENSOR_MAX_DATA))) {
 		return driver_operation_error(SENSOR_DRIVER, SENSOR_ERR_NOT_ENOUGH_MEMORY, NULL);
 	}

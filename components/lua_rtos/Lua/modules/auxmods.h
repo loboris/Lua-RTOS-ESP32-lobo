@@ -43,8 +43,8 @@ LUALIB_API int ( luaopen_mqtt )( lua_State *L );
 #define AUXLIB_THREAD "thread"
 LUALIB_API int (luaopen_thread) (lua_State* L);
 
-#define AUXLIB_SCREEN "screen"
-LUALIB_API int (luaopen_screen) (lua_State* L);
+#define AUXLIB_TFT "tft"
+LUALIB_API int (luaopen_tft) (lua_State* L);
 
 #define AUXLIB_GPS "gps"
 LUALIB_API int (luaopen_gps) (lua_State* L);
@@ -66,15 +66,6 @@ LUALIB_API int (luaopen_pack) (lua_State* L);
 
 #define AUXLIB_NVS "nvs"
 LUALIB_API int (luaopen_nvs) (lua_State* L);
-
-#define AUXLIB_BME280 "bme280"
-LUALIB_API int (luaopen_bme280) (lua_State* L);
-
-#define AUXLIB_OW "ow"
-LUALIB_API int (luaopen_ow) (lua_State* L);
-
-#define AUXLIB_LED "led"
-LUALIB_API int (luaopen_led) (lua_State* L);
 
 // Helper macros
 #define MOD_CHECK_ID( mod, id )\

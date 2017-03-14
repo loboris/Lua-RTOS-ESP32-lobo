@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, cpu driver
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -174,8 +174,8 @@ typedef uint64_t gpio_pin_mask_t;
 // ESP32 available SPI names
 #define CPU_SPI0_NAME  "SPI0"
 #define CPU_SPI1_NAME  "SPI1"
-#define CPU_SPI2_NAME  "SPI2"
-#define CPU_SPI3_NAME  "SPI3"
+#define CPU_SPI2_NAME  "SPI2(HSPI)"
+#define CPU_SPI3_NAME  "SPI3(VSPI)"
 
 /*
  * ----------------------------------------------------------------
@@ -206,7 +206,7 @@ typedef uint64_t gpio_pin_mask_t;
 
 // Unit bounds
 #define CPU_FIRST_ADC 1
-#define CPU_LAST_ADC  1
+#define CPU_LAST_ADC  3
 
 // Channel bounds
 #define CPU_FIRST_ADC_CH 0
@@ -217,9 +217,13 @@ typedef uint64_t gpio_pin_mask_t;
 
 // ESP32 available ADC units
 #define CPU_ADC1     1
+#define CPU_ADC2     2
+#define CPU_ADC3     3
 
 // ESP32 available ADC unit names
 #define CPU_ADC1_NAME  "ADC1"
+#define CPU_ADC2_NAME  "MCP3008"
+#define CPU_ADC3_NAME  "MCP3208"
 
 // ESP32 available ADC channels
 #define CPU_ADC_CH0  0
@@ -323,5 +327,6 @@ void cpu_idle(int seconds);
 unsigned int cpu_has_gpio(unsigned int port, unsigned int pin);
 unsigned int cpu_has_port(unsigned int port);
 void cpu_sleep(int seconds);
-int cpu_reset_reason(char *buf);
+int cpu_reset_reasons(char *buf);
 uint8_t cpu_gpio_number(uint8_t pin);
+void cpu_show_flash_info();

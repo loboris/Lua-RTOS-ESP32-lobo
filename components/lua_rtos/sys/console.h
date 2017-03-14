@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, some console utility functions
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -37,6 +37,8 @@ void console_clearstatusline();
 void console_erase_eol();
 void console_erase_sol();
 void console_erase_l();
+void console_hide_cursor();
+void console_show_cursor();
 
 #endif	/* CONSOLE_H */
 

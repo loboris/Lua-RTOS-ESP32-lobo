@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, timer wrapper
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -29,7 +29,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_TMR
+#if CONFIG_LUA_RTOS_LUA_USE_TMR
 
 #include "lua.h"
 #include "lauxlib.h"

@@ -1,3 +1,7 @@
+ifneq (foo$(TEST_LUA), foo)
+CFLAGS += -DRUN_LUA_TESTS
+endif
+
 ifneq (foo$(TEST_COMPONENTS), foo)
 CFLAGS += -DRUN_TESTS
 endif
@@ -9,6 +13,9 @@ CFLAGS += -DLWIP_SO_LINGER=1
 
 CFLAGS += -Wno-error=implicit-function-declaration -Wno-error=pointer-sign
 
+LDFLAGS += -Wl,--wrap=_realloc_r
+LDFLAGS += -Wl,--wrap=_malloc_r
+LDFLAGS += -Wl,--wrap=_calloc_r
 LDFLAGS += -Wl,--wrap=_open_r
 LDFLAGS += -Wl,--wrap=_unlink_r
 LDFLAGS += -Wl,--wrap=_rename_r
@@ -55,10 +62,14 @@ CFLAGS += -DCORE_TIMER_HZ=240000000L            # CPU core timer frequency
 CFLAGS += -D_CLOCKS_PER_SEC_=configTICK_RATE_HZ # Number of interrupt ticks for reach 1 second
 CFLAGS += -DMTX_USE_EVENTS=0                    # Use event groups in mtx implementation (experimental)
 
-
 CFLAGS += -DUSE_RTC=0						    # Enable RTC
 CFLAGS += -DPATH_MAX=64
 CFLAGS += -DMAXNAMLEN=64
+
+#
+# SDCARD configuration
+# 
+CFLAGS += -DSD_KHZ=15000	           # Speed
 
 #
 # Display driver configuration
@@ -93,4 +104,8 @@ CFLAGS += -DLUA_USE_HISTORY=1
 
 # Define BUILD_TIME flag, with the EPOCH time when Lua RTOS is build.
 # This is used for set system time when RTC is not set.
+ifneq (foo$(LUA_RTOS_BUILD_TIME), foo)
+CFLAGS += -DBUILD_TIME=$(LUA_RTOS_BUILD_TIME)
+else
 CFLAGS += -DBUILD_TIME=$(shell date +%s)
+endif

@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, pthread implementation over FreeRTOS
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -62,7 +62,7 @@
 #endif
 
 // Minimal stack size per thread
-#define PTHREAD_STACK_MIN LUA_THREAD_STACK
+#define PTHREAD_STACK_MIN (1024 * 2)
 
 #define PTHREAD_CREATE_DETACHED 0
 
@@ -177,6 +177,8 @@ void  _pthread_mutex_free();
 int   _pthread_core(pthread_t id);
 sig_t _pthread_signal(int s, sig_t h);
 int   _pthread_get_prio();
+int   _pthread_stack_free(pthread_t id);
+int   _pthread_stack(pthread_t id);
 
 // API functions
 int  pthread_attr_init(pthread_attr_t *attr);

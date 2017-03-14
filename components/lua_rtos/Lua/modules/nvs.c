@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, nvs (non volatile storage) Lua Module
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -36,7 +36,7 @@
 #include <string.h>
 
 
-#if LUA_USE_NVS
+#if CONFIG_LUA_RTOS_LUA_USE_NVS
 
 #include "xtensa/xos_types.h"
 #include "esp_system.h"

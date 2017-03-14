@@ -29,12 +29,60 @@ SECTIONS {
 	/* exception names exported to Lua modules */
 	/* TO DO */
 	/*   Generate this entries automatically */
+    nzr_errors = ABSOLUTE(.);
+    KEEP(*(.nzr_errors))
+    LONG(0) LONG(0)
+
+    nzr_error_map = ABSOLUTE(.);
+    KEEP(*(.nzr_error_map))
+    LONG(0) LONG(0)
+
+    neopixel_errors = ABSOLUTE(.);
+    KEEP(*(.neopixel_errors))
+    LONG(0) LONG(0)
+
+    neopixel_error_map = ABSOLUTE(.);
+    KEEP(*(.neopixel_error_map))
+    LONG(0) LONG(0)
+
+    uart_errors = ABSOLUTE(.);
+    KEEP(*(.uart_errors))
+    LONG(0) LONG(0)
+
+    uart_error_map = ABSOLUTE(.);
+    KEEP(*(.uart_error_map))
+    LONG(0) LONG(0)
+
+    pwbus_errors = ABSOLUTE(.);
+    KEEP(*(.pwbus_errors))
+    LONG(0) LONG(0)
+
+    pwbus_error_map = ABSOLUTE(.);
+    KEEP(*(.pwbus_error_map))
+    LONG(0) LONG(0)
+
+    thread_errors = ABSOLUTE(.);
+    KEEP(*(.thread_errors))
+    LONG(0) LONG(0)
+
+    thread_error_map = ABSOLUTE(.);
+    KEEP(*(.thread_error_map))
+    LONG(0) LONG(0)
+
     spi_errors = ABSOLUTE(.);
     KEEP(*(.spi_errors))
     LONG(0) LONG(0)
 
     spi_error_map = ABSOLUTE(.);
     KEEP(*(.spi_error_map))
+    LONG(0) LONG(0)
+
+    espi_errors = ABSOLUTE(.);
+    KEEP(*(.espi_errors))
+    LONG(0) LONG(0)
+
+    espi_error_map = ABSOLUTE(.);
+    KEEP(*(.espi_error_map))
     LONG(0) LONG(0)
 
     adc_errors = ABSOLUTE(.);
@@ -133,7 +181,7 @@ SECTIONS {
     KEEP(*(.sensor_error_map))
     LONG(0) LONG(0)
 
-    ws2812_errors = ABSOLUTE(.);
+     ws2812_errors = ABSOLUTE(.);
     KEEP(*(.ws2812_errors))
     LONG(0) LONG(0)
 
@@ -141,6 +189,14 @@ SECTIONS {
     KEEP(*(.ws2812_error_map))
     LONG(0) LONG(0)
 
+    sdcrd_errors = ABSOLUTE(.);
+    KEEP(*(.sdcrd_errors))
+    LONG(0) LONG(0)
+
+    sdcrd_error_map = ABSOLUTE(.);
+    KEEP(*(.sdcrd_error_map))
+    LONG(0) LONG(0)
+ 
     _lua_rtos_rodata_end = ABSOLUTE(.);
   } >drom0_0_seg
 }

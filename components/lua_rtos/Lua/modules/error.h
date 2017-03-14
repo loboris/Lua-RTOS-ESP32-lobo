@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, Lua helper functions for throw an error from a driver error
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -47,6 +47,14 @@ int luaL_driver_error(lua_State* L, driver_error_t *error);
 		"%d:%s", \
 		exception, \
 		driver_get_err_msg_by_exception(exception) \
+	)
+
+#define luaL_exception_extended(l, exception, msg) \
+	luaL_error(l, \
+		"%d:%s (%s)", \
+		exception, \
+		driver_get_err_msg_by_exception(exception), \
+		msg \
 	)
 
 #endif

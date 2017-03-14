@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, network manager
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -80,59 +80,6 @@ driver_error_t *net_lookup(const char *name, struct sockaddr_in *address) {
 		printf("net_lookup error %d, errno %d (%s)\r\n",rc, errno, strerror(rc));
 		return NULL;
 	}
-}
-
-driver_error_t *net_get(const char *name, const char *page, char *response) {
-	driver_error_t *error;
-	int rc = 0;
-	int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-	struct sockaddr_in serverAddress;
-	char sendline[256], recvline[256];
-
-	size_t n;
-
-	if ((error = net_check_connectivity())) return error;
-
-	if ((error = net_lookup(name, &serverAddress))) {
-		return error;
-	}
-
-	//inet_pton(AF_INET, address.sin_addr.s_addr, &serverAddress.sin_addr.s_addr);
-	serverAddress.sin_port = htons(80);
-
-	rc = connect(sock, (struct sockaddr *)&serverAddress, sizeof(struct sockaddr_in));
-	if (rc) {
-		rc = close(sock);
-		printf("net connect error %d, errno %d (%s)\r\n",rc, errno, strerror(rc));
-		return NULL;
-	}
-
-	/// Form request
-	char poststr[64] = {'\0'};
-	snprintf(sendline, 255,
-	     "GET %s HTTP/1.0\r\n"  // POST or GET, both tested and works. Both HTTP 1.0 HTTP 1.1 works, but sometimes
-	     "Host: %s\r\n"     // but sometimes HTTP 1.0 works better in localhost type
-	     "Content-type: application/x-www-form-urlencoded\r\n"
-	     "Content-length: %d\r\n\r\n"
-	     "%s\r\n", page, name, (unsigned int)strlen(poststr), poststr);
-
-	//rc = write(sock, sendline, strlen(sendline));
-	rc = send(sock, sendline, strlen(sendline), 0);
-	if (rc <= 0) {
-		rc = close(sock);
-		printf("net send error %d, errno %d (%s)\r\n",rc, errno, strerror(rc));
-		return NULL;
-	}
-
-    /// Read the response
-    while ((n = read(sock, recvline, 255)) > 0) {
-        recvline[n] = '\0';
-
-        printf("%s", recvline);
-    }
-
-	rc = close(sock);
-	return NULL;
 }
 
 DRIVER_REGISTER(NET,net,NULL,NULL,NULL);

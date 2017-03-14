@@ -25,8 +25,8 @@
 #include "auxmods.h"
 #include "error.h"
 
-#if LUA_USE_TFT
-
+//#if LUA_USE_TFT
+#if CONFIG_LUA_RTOS_LUA_USE_TFT
 
 // Constants for ellipse function
 #define TFT_ELLIPSE_UPPER_RIGHT 0x01
@@ -147,9 +147,13 @@ static uint16_t TFT_readPixel(int16_t x, int16_t y) {
 static void TFT_drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 	// clipping
 	if ((x < dispWin.x1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
-	if (y < dispWin.y1) y = dispWin.y1;
+	if (y < dispWin.y1) {
+		h -= (dispWin.y1 - y);
+		y = dispWin.y1;
+	}
+	if (h < 0) h = 0;
 	if ((y + h) > (dispWin.y2+1)) h = dispWin.y2 - y + 1;
-
+	if (h == 0) h = 1;
 	TFT_pushColorRep(x, y, x, y+h-1, color, (uint32_t)h);
 }
 
@@ -157,8 +161,13 @@ static void TFT_drawFastVLine(int16_t x, int16_t y, int16_t h, uint16_t color) {
 static void TFT_drawFastHLine(int16_t x, int16_t y, int16_t w, uint16_t color) {
 	// clipping
 	if ((y < dispWin.y1) || (x > dispWin.x2) || (y > dispWin.y2)) return;
-	if (x < dispWin.x1) x = dispWin.x1;
+	if (x < dispWin.x1) {
+		w -= (dispWin.x1 - x);
+		x = dispWin.x1;
+	}
+	if (w < 0) w = 0;
 	if ((x + w) > (dispWin.x2+1)) w = dispWin.x2 - x + 1;
+	if (w == 0) w = 1;
 
 	TFT_pushColorRep(x, y, x+w-1, y, color, (uint32_t)w);
 }
@@ -169,8 +178,16 @@ static void TFT_fillRect(int16_t x, int16_t y, int16_t w, int16_t h, uint16_t co
 	// clipping
 	if ((x >= dispWin.x2) || (y > dispWin.y2)) return;
 
-	if (x < dispWin.x1) x = dispWin.x1;
-	if (y < dispWin.y1) y = dispWin.y1;
+	if (x < dispWin.x1) {
+		w -= (dispWin.x1 - x);
+		x = dispWin.x1;
+	}
+	if (y < dispWin.y1) {
+		h -= (dispWin.y1 - y);
+		y = dispWin.y1;
+	}
+	if (w < 0) w = 0;
+	if (h < 0) h = 0;
 
 	if ((x + w) > (dispWin.x2+1)) w = dispWin.x2 - x + 1;
 	if ((y + h) > (dispWin.y2+1)) h = dispWin.y2 - y + 1;
@@ -206,7 +223,7 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 	int16_t x = 0;
 	int16_t y = r;
 
-	spi_select(DISP_SPI);
+	spi_device_select(disp_spi, 0);
 	while (x < y) {
 		if (f >= 0) {
 			y--;
@@ -233,7 +250,7 @@ static void drawCircleHelper(int16_t x0, int16_t y0, int16_t r, uint8_t cornerna
 			TFT_drawPixel(x0 - x, y0 - y, color, 0);
 		}
 	}
-	spi_deselect(DISP_SPI);
+	spi_device_deselect(disp_spi);
 }
 
 // Used to do circles and roundrects
@@ -306,10 +323,12 @@ static void TFT_drawLine(int16_t x0, int16_t y0, int16_t x1, int16_t y1, uint16_
   if (x0 == x1) {
 	  if (y0 <= y1) TFT_drawFastVLine(x0, y0, y1-y0, color);
 	  else TFT_drawFastVLine(x0, y1, y0-y1, color);
+	  return;
   }
   if (y0 == y1) {
 	  if (x0 <= x1) TFT_drawFastHLine(x0, y0, x1-x0, color);
 	  else TFT_drawFastHLine(x1, y0, x0-x1, color);
+	  return;
   }
 
   int steep = 0;
@@ -476,7 +495,7 @@ static void TFT_drawCircle(int16_t x, int16_t y, int radius, uint16_t color) {
   int x1 = 0;
   int y1 = radius;
 
-  spi_select(DISP_SPI);
+  spi_device_select(disp_spi, 0);
   TFT_drawPixel(x, y + radius, color, 0);
   TFT_drawPixel(x, y - radius, color, 0);
   TFT_drawPixel(x + radius, y, color, 0);
@@ -499,28 +518,19 @@ static void TFT_drawCircle(int16_t x, int16_t y, int radius, uint16_t color) {
     TFT_drawPixel(x + y1, y - x1, color, 0);
     TFT_drawPixel(x - y1, y - x1, color, 0);
   }
-  spi_deselect(DISP_SPI);
+  spi_device_deselect(disp_spi);
 }
 
 //----------------------------------------------------------------------------
 static void TFT_fillCircle(int16_t x, int16_t y, int radius, uint16_t color) {
-  int x1,y1;
-
-  for (y1=-radius; y1<=0; y1++) {
-    for (x1=-radius; x1<=0; x1++) {
-      if (x1*x1+y1*y1 <= radius*radius) {
-        TFT_drawFastHLine(x+x1, y+y1, 2*(-x1), color);
-        TFT_drawFastHLine(x+x1, y-y1, 2*(-x1), color);
-        break;
-      }
-    }
-  }
+	TFT_drawFastVLine(x, y-radius, 2*radius+1, color);
+	fillCircleHelper(x, y, radius, 3, 0, color);
 }
 
 //--------------------------------------------------------------------------------------------------------------------
 static void TFT_draw_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16_t y0, uint16_t color, uint8_t option)
 {
-	spi_select(DISP_SPI);
+	spi_device_select(disp_spi, 0);
     // upper right
     if ( option & TFT_ELLIPSE_UPPER_RIGHT ) TFT_drawPixel(x0 + x, y0 - y, color, 0);
     // upper left
@@ -529,7 +539,7 @@ static void TFT_draw_ellipse_section(uint16_t x, uint16_t y, uint16_t x0, uint16
     if ( option & TFT_ELLIPSE_LOWER_RIGHT ) TFT_drawPixel(x0 + x, y0 + y, color, 0);
     // lower left
     if ( option & TFT_ELLIPSE_LOWER_LEFT ) TFT_drawPixel(x0 - x, y0 + y, color, 0);
-	spi_deselect(DISP_SPI);
+	spi_device_deselect(disp_spi);
 }
 
 //--------------------------------------------------------------------------------------------------------------
@@ -1196,7 +1206,7 @@ static int rotatePropChar(int x, int y, int offset) {
   float sin_radian = sin(radian);
 
   uint8_t mask = 0x80;
-  spi_select(DISP_SPI);
+  spi_device_select(disp_spi, 0);
   for (int j=0; j < fontChar.height; j++) {
     for (int i=0; i < fontChar.width; i++) {
       if (((i + (j*fontChar.width)) % 8) == 0) {
@@ -1213,7 +1223,7 @@ static int rotatePropChar(int x, int y, int offset) {
       mask >>= 1;
     }
   }
-  spi_deselect(DISP_SPI);
+  spi_device_deselect(disp_spi);
 
   return fontChar.xDelta+1;
 }
@@ -1232,7 +1242,7 @@ static int printProportionalChar(int x, int y) {
 
   // draw Glyph
   uint8_t mask = 0x80;
-  spi_deselect(DISP_SPI);
+  spi_device_select(disp_spi, 0);
   for (j=0; j < fontChar.height; j++) {
     for (i=0; i < fontChar.width; i++) {
       if (((i + (j*fontChar.width)) % 8) == 0) {
@@ -1248,7 +1258,7 @@ static int printProportionalChar(int x, int y) {
       mask >>= 1;
     }
   }
-  spi_deselect(DISP_SPI);
+  spi_device_deselect(disp_spi);
 
   return fontChar.xDelta;
 }
@@ -1271,7 +1281,7 @@ static void printChar(uint8_t c, int x, int y) {
     TFT_fillRect(x, y, cfont.x_size, cfont.y_size, _bg);
   }
 
-  spi_select(DISP_SPI);
+  spi_device_select(disp_spi, 0);
   for (j=0; j<cfont.y_size; j++) {
     for (k=0; k < fz; k++) {
       ch = cfont.font[temp+k];
@@ -1287,7 +1297,7 @@ static void printChar(uint8_t c, int x, int y) {
     }
     temp += (fz);
   }
-  spi_deselect(DISP_SPI);
+  spi_device_deselect(disp_spi);
 }
 
 // rotated fixed width character
@@ -1305,7 +1315,7 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
   else fz = cfont.x_size/8;
   temp=((c-cfont.offset)*((fz)*cfont.y_size))+4;
 
-  spi_deselect(DISP_SPI);
+  spi_device_select(disp_spi, 0);
   for (j=0; j<cfont.y_size; j++) {
     for (zz=0; zz<(fz); zz++) {
       ch = cfont.font[temp+zz];
@@ -1321,7 +1331,7 @@ static void rotateChar(uint8_t c, int x, int y, int pos) {
     }
     temp+=(fz);
   }
-  spi_deselect(DISP_SPI);
+  spi_device_deselect(disp_spi);
   // calculate x,y for the next char
   TFT_X = (int)(x + ((pos+1) * cfont.x_size * cos_radian));
   TFT_Y = (int)(y + ((pos+1) * cfont.x_size * sin_radian));
@@ -2052,7 +2062,9 @@ static UINT tjd_output (
 	return 1;	// Continue to decompression
 }
 
+#if CONFIG_LUA_RTOS_LUA_USE_CAM
 extern uint8_t *cam_get_image(FILE *fhndl, int *err, uint32_t *bytes_read, uint8_t capture);
+#endif
 
 // tft.jpgimage(X, Y, scale, file_name [, from_cam]
 //=======================================
@@ -2083,6 +2095,7 @@ static int ltft_jpg_image( lua_State* L )
         return luaL_error(L, "Line buffer not allocated");
     }
 
+	#if CONFIG_LUA_RTOS_LUA_USE_CAM
     if ((strcmp(fname, "CAM") == 0) || (strcmp(fname, "cam") == 0)) {
     	// image from camera
     	dev.fhndl = NULL;
@@ -2108,6 +2121,20 @@ static int ltft_jpg_image( lua_State* L )
             return luaL_error(L, strerror(errno));
         }
     }
+	#else
+	// image from file
+    dev.membuff = NULL;
+    dev.bufsize = 0;
+
+    if (stat(fname, &sb) != 0) {
+        return luaL_error(L, strerror(errno));
+    }
+
+    dev.fhndl = fopen(fname, "r");
+    if (!dev.fhndl) {
+        return luaL_error(L, strerror(errno));
+    }
+	#endif
 
 	char *work;				// Pointer to the working buffer (must be 4-byte aligned)
 	UINT sz_work = 3800;	// Size of the working buffer (must be power of 2)
@@ -2422,7 +2449,7 @@ exit:
 
 //====================================
 static int ltft_init( lua_State* L ) {
-    driver_error_t *error;
+    esp_err_t error;
 
     uint8_t typ = luaL_checkinteger( L, 1);
 
@@ -2439,7 +2466,7 @@ static int ltft_init( lua_State* L ) {
     error = tft_spi_init(typ);
     if (error) {
     	TFT_type = -1;
-    	return luaL_driver_error(L, error);
+    	return luaL_error(L, "Error initializing display (%d)", error);
     }
 
     typ = LANDSCAPE;
@@ -2723,20 +2750,20 @@ static int tft_getpixel( lua_State* L )
 	return 1;
 }
 
-//====================================
-static int tft_getline( lua_State* L )
+//======================================
+static int tft_getwindow( lua_State* L )
 {
 	_check(L);
-	if (checkParam(3, L)) return 0;
+	if (checkParam(4, L)) return 0;
 
     int out_type = 0;
     luaL_Buffer b;
     char hbuf[8];
 
-    if ((lua_gettop(L) > 3) && (lua_isstring(L, 4))) {
+    if ((lua_gettop(L) > 4) && (lua_isstring(L, 4))) {
         const char* sarg;
         size_t sarglen;
-        sarg = luaL_checklstring(L, 4, &sarglen);
+        sarg = luaL_checklstring(L, 5, &sarglen);
         if (sarglen == 2) {
         	if (strstr(sarg, "*h") != NULL) out_type = 1;
         	else if (strstr(sarg, "*t") != NULL) out_type = 2;
@@ -2745,35 +2772,44 @@ static int tft_getline( lua_State* L )
 
     int16_t x = luaL_checkinteger( L, 1 );
 	int16_t y = luaL_checkinteger( L, 2 );
-	int len = luaL_checkinteger( L, 3 );
+	int w = luaL_checkinteger( L, 3 );
+	int h = luaL_checkinteger( L, 3 );
 	uint8_t f = 0;
-	if (len < 1) len = 1;
-	if (len > _width) len = _width;
-	if ((y < 0) || (y > (_height-1))) f= 1;
-	if ((x < 0) || (x > (_width-1))) f= 1;
-	if ((x + len) > _width) len = _width - x;
+	if (w < 1) w = 1;
+	if (w > _width) w = _width;
+	if (h < 1) h = 1;
+	if (h > _height) h = _height;
+	if ((x + w) > _width) w = _width - x;
+	if ((y + h) > _height) h = _height - h;
 
+	int len = w*h;
+	if ((y < 0) || (y > (_height-1))) f= 1;
+	else if ((x < 0) || (x > (_width-1))) f= 1;
+	else if (len > (TFT_LINEBUF_MAX_SIZE)) f = 1;
 	if (f) {
-        return luaL_error( L, "wrong coordinates" );
+        return luaL_error( L, "wrong coordinates or size > %d", TFT_LINEBUF_MAX_SIZE );
 	}
 
-	if (out_type < 2) luaL_buffinit(L, &b);
-    else lua_newtable(L);
+	int err = read_data(x, y, x+w, y+h, len, (uint8_t *)tft_line);
+    if (err < 0) {
+        return luaL_error( L, "Error reading display data (%d)", err );
+    }
 
-    read_data(x, y, x+len, y, len, (uint8_t *)tft_line);
+    if (out_type < 2) luaL_buffinit(L, &b);
+    else lua_newtable(L);
 
 	if (out_type == 0) {
 		luaL_addlstring(&b, (const char *)tft_line, len);
 	}
 	else {
-		for (int i = 0; i < (len*2); i+=2) {
+		for (int i = 0; i < len; i++) {
 			if (out_type == 1) {
-				sprintf(hbuf, "%04x;", (tft_line[i] << 8) | tft_line[i+1]);
+				sprintf(hbuf, "%04x;", tft_line[i]);
 				luaL_addstring(&b, hbuf);
 			}
 			else {
-				lua_pushinteger( L, (tft_line[i] << 8) | tft_line[i+1]);
-				lua_rawseti(L, -2, (i/2)+1);
+				lua_pushinteger( L, tft_line[i]);
+				lua_rawseti(L, -2, i+1);
 			}
 		}
 	}
@@ -3114,33 +3150,42 @@ static int tft_write( lua_State* L )
 
 //--------------------------------------
 static int tft_set_speed(lua_State *L) {
-	int speed = spi_get_speed(DISP_SPI);
+	int speed = espi_get_speed(disp_spi) / 1000;
 
 	if (lua_gettop(L) > 0) {
 		speed = luaL_checkinteger(L, 1);
+
 		if (speed < 1000) speed = 1000;
-		else if (speed > 80000) speed = 80000;
-		if (speed != spi_get_speed(DISP_SPI)) {
-			spi_set_speed(DISP_SPI, speed);
+		else if (speed > 40000) speed = 40000;
+
+		if (speed != (espi_get_speed(disp_spi)/1000)) {
+			speed = espi_set_speed(disp_spi, speed*1000) / 1000;
 		}
 	}
 
-	lua_pushinteger(L, spi_get_speed(DISP_SPI) / 1000);
+	lua_pushinteger(L, speed);
 
 	return 1;
 }
 
 //-----------------------------------
 static int tft_config(lua_State *L) {
-	if (lua_gettop(L) > 0) {
-		uint8_t sdi = luaL_checkinteger(L, 1);
-		uint8_t sdo = luaL_checkinteger(L, 2);
-		uint8_t sck = luaL_checkinteger(L, 3);
-		uint8_t cs  = luaL_checkinteger(L, 4);
-		uint8_t dc  = luaL_checkinteger(L, 5);
-		uint8_t tcs = luaL_checkinteger(L, 6);
+	if (TFT_type < 0) {
+		uint8_t typ = luaL_checkinteger(L, 1);
+		uint8_t sdi = luaL_checkinteger(L, 2);
+		uint8_t sdo = luaL_checkinteger(L, 3);
+		uint8_t sck = luaL_checkinteger(L, 4);
+		uint8_t cs  = luaL_checkinteger(L, 5);
+		uint8_t dc  = luaL_checkinteger(L, 6);
+		uint8_t tcs = luaL_checkinteger(L, 7);
 
-		tft_spi_config(sdi,sdo,sck,cs,dc,tcs);
+		tft_spi_disp_config(sdi,sdo,sck,cs,dc);
+		if (typ == 3) {
+			tft_spi_touch_config(sdi,sdo,sck,tcs);
+		}
+	}
+	else {
+    	return luaL_error(L, "TFT already initialized");
 	}
 
 	return 0;
@@ -3370,7 +3415,7 @@ static const LUA_REG_TYPE tft_map[] = {
 	{ LSTRKEY( "invert" ),			LFUNCVAL( tft_invert )},
 	{ LSTRKEY( "putpixel" ),		LFUNCVAL( tft_putpixel )},
 	{ LSTRKEY( "getpixel" ),		LFUNCVAL( tft_getpixel )},
-	{ LSTRKEY( "getline" ),			LFUNCVAL( tft_getline )},
+	{ LSTRKEY( "getline" ),			LFUNCVAL( tft_getwindow )},
 	{ LSTRKEY( "line" ),			LFUNCVAL( tft_drawline )},
 	{ LSTRKEY( "linebyangle" ),		LFUNCVAL( tft_drawlineByAngle )},
 	{ LSTRKEY( "rect" ),			LFUNCVAL( tft_rect )},
@@ -3441,12 +3486,11 @@ static const LUA_REG_TYPE tft_map[] = {
 
 int luaopen_tft(lua_State* L) {
 #if !LUA_USE_ROTABLE
-    luaL_newlib(L, screen_map);
+    luaL_newlib(L, tft_map);
 
     return 1;
 #else
     tft_set_defaults();
-
     return 0;
 #endif
 }

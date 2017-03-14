@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, UART wrapper
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -29,7 +29,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_UART
+#if CONFIG_LUA_RTOS_LUA_USE_UART
 
 #include <stdio.h>
 #include <string.h>

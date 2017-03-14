@@ -5,13 +5,15 @@
  *      Author: LoBo (loboris@gmail.com, https://github.com/loboris)
  */
 
+#include "luartos.h"
+
+#if CONFIG_LUA_RTOS_LUA_USE_CAM
 
 #include "arducam.h"
 #include <string.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
-#include "drivers/spi.h"
 #include <drivers/i2c.h>
 
 static struct CAM myCAM;
@@ -875,32 +877,67 @@ static const sensor_reg_t OV2640_1600x1200_JPEG[] =
 
 static i2c_arducam_data_t i2c_dev = {0};
 uint8_t cam_initialized = 0;
+spi_device_handle_t ARDUCAM_SPI = NULL;
+
+static spi_bus_config_t buscfg={
+    .miso_io_num=-1,
+    .mosi_io_num=-1,
+    .sclk_io_num=-1,
+    .quadwp_io_num=-1,
+    .quadhd_io_num=-1
+};
+
+static spi_device_interface_config_t ARDUCAM_SPI_cfg = {
+    .clock_speed_hz = 8000000,		// Clock out at 8 MHz
+    .mode = 0,						// SPI mode 0
+    .spics_io_num = -1,				// use software CS pin
+	.spics_ext_io_num = PIN_NUM_CS,	// CS pin
+	.spidc_io_num = -1,
+    .queue_size = 7,				// We want to be able to queue 7 transactions at a time
+    .pre_cb = NULL,					// Specify pre-transfer callback to handle D/C line
+};
+
 
 //----------------------------------------------------------------------------
 static int arducam_spi_init(uint8_t sdi, uint8_t sdo, uint8_t sck, uint8_t cs)
 {
-	driver_error_t *err;
-	if (cs == 0) {
-		//default spi config
-	    spi_pin_config(ARDUCAM_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-	    err = spi_init(ARDUCAM_SPI, 1);
-	    if (err) return -1;
-	    err = spi_set_mode(ARDUCAM_SPI, 0);
-	    if (err) return -2;
-	    err = spi_set_speed(ARDUCAM_SPI, 6000);
-	    if (err) return -3;
+	if (cs != 0) {
+		buscfg.miso_io_num=sdi;
+		buscfg.mosi_io_num=sdo;
+		buscfg.sclk_io_num=sck;
+		buscfg.quadwp_io_num=-1;
+		buscfg.quadhd_io_num=-1;
+
+		ARDUCAM_SPI_cfg.clock_speed_hz = 8000000;	// Clock out at 8 MHz
+		ARDUCAM_SPI_cfg.mode = 0;					// SPI mode 0
+		ARDUCAM_SPI_cfg.spics_io_num = -1;			// use software CS pin
+		ARDUCAM_SPI_cfg.spics_ext_io_num = cs;		// CS pin
+		ARDUCAM_SPI_cfg.spidc_io_num = -1;
+		ARDUCAM_SPI_cfg.queue_size = 3;				// We want to be able to queue 3 transactions at a time
+		ARDUCAM_SPI_cfg.pre_cb = NULL;				// Specify pre-transfer callback to handle D/C line
 	}
-	else {
-	    spi_pin_config(ARDUCAM_SPI, sdi, sdo, sck, cs);
-	    err = spi_init(ARDUCAM_SPI, 1);
-	    if (err) return -1;
-	    err = spi_set_mode(ARDUCAM_SPI, 0);
-	    if (err) return -2;
-	    err = spi_set_speed(ARDUCAM_SPI, 6000);
-	    if (err) return -3;
+	else if (buscfg.sclk_io_num <= 0) {
+		buscfg.miso_io_num=PIN_NUM_MISO;
+		buscfg.mosi_io_num=PIN_NUM_MOSI;
+		buscfg.sclk_io_num=PIN_NUM_CLK;
+
+		ARDUCAM_SPI_cfg.clock_speed_hz = 8000000;		// Clock out at 8 MHz
+		ARDUCAM_SPI_cfg.mode = 0;						// SPI mode 0
+		ARDUCAM_SPI_cfg.spics_io_num = -1;				// use software CS pin
+		ARDUCAM_SPI_cfg.spics_ext_io_num = PIN_NUM_CS;	// CS pin
+		ARDUCAM_SPI_cfg.spidc_io_num = -1;
+		ARDUCAM_SPI_cfg.queue_size = 3;					// We want to be able to queue 3 transactions at a time
+		ARDUCAM_SPI_cfg.pre_cb = NULL;					// Specify pre-transfer callback to handle D/C line
 	}
-	//spi_select(ARDUCAM_SPI);
-	return 0;
+
+	driver_error_t *error = espi_init(VSPI_HOST, &ARDUCAM_SPI_cfg, &buscfg, &ARDUCAM_SPI);
+	if (error) {
+		free(error);
+		return -1;
+	}
+	//spi_device_select(ARDUCAM_SPI, 0);
+
+    return 0;
 }
 
 //------------------------------------------------------------------------
@@ -937,13 +974,13 @@ static void arducam_spi_write(uint8_t address, uint8_t value)
 
 	uint8_t data[2] = {address, value};
 
-	taskDISABLE_INTERRUPTS();
-	spi_select(ARDUCAM_SPI);
+	if (spi_device_select(ARDUCAM_SPI, 0)) return;
+	//taskDISABLE_INTERRUPTS();
 
-    spi_master_op(ARDUCAM_SPI, 2, 1, (unsigned char *)data, NULL);
-	spi_deselect(ARDUCAM_SPI);
+	spi_transfer_data(ARDUCAM_SPI, (unsigned char *)data, NULL, 2, 0);
+	spi_device_deselect(ARDUCAM_SPI);
 
-	taskENABLE_INTERRUPTS();
+	//taskENABLE_INTERRUPTS();
 #ifdef CONFIG_VERIFY
 	data[0] = arducam_spi_read(address & 0x7f);
 	if (data[0] != value) {
@@ -958,14 +995,14 @@ static uint8_t arducam_spi_read(uint8_t address)
 {
 	uint8_t data[2] = {address, 0x00};
 
-	taskDISABLE_INTERRUPTS();
-	spi_select(ARDUCAM_SPI);
+	if (spi_device_select(ARDUCAM_SPI, 0)) return 0;
+	//taskDISABLE_INTERRUPTS();
 
-    spi_master_op(ARDUCAM_SPI, 1, 2, data, data);
+	spi_transfer_data(ARDUCAM_SPI, data, data, 2, 2);
 
-	spi_deselect(ARDUCAM_SPI);
+	spi_device_deselect(ARDUCAM_SPI);
 
-    taskENABLE_INTERRUPTS();
+    //taskENABLE_INTERRUPTS();
 
     return data[1];
 }
@@ -1035,30 +1072,6 @@ uint8_t arducam_i2c_read(uint8_t regID, uint8_t* regDat)
     return 0;
 }
 
-//----------------------------------------------------------------
-static uint8_t arducam_i2c_write16(uint8_t regID, uint16_t regDat)
-{
-	return 0;
-}
-
-//----------------------------------------------------------------
-static uint8_t arducam_i2c_read16(uint8_t regID, uint16_t* regDat)
-{
-	return 0;
-}
-
-//-------------------------------------------------------------------
-static uint8_t arducam_i2c_word_write(uint16_t regID, uint8_t regDat)
-{
-	return 0;
-}
-
-//-------------------------------------------------------------------
-static uint8_t arducam_i2c_word_read(uint16_t regID, uint8_t* regDat)
-{
-	return 0;
-}
-
 //-------------------------------------------------------------
 static int arducam_i2c_write_regs(const sensor_reg_t reglist[])
 {
@@ -1080,6 +1093,31 @@ static int arducam_i2c_write_regs(const sensor_reg_t reglist[])
 	   	reg_idx++;
 	}
 
+	return 0;
+}
+
+/*
+//----------------------------------------------------------------
+static uint8_t arducam_i2c_write16(uint8_t regID, uint16_t regDat)
+{
+	return 0;
+}
+
+//----------------------------------------------------------------
+static uint8_t arducam_i2c_read16(uint8_t regID, uint16_t* regDat)
+{
+	return 0;
+}
+
+//-------------------------------------------------------------------
+static uint8_t arducam_i2c_word_write(uint16_t regID, uint8_t regDat)
+{
+	return 0;
+}
+
+//-------------------------------------------------------------------
+static uint8_t arducam_i2c_word_read(uint16_t regID, uint8_t* regDat)
+{
 	return 0;
 }
 
@@ -1125,6 +1163,7 @@ static int arducam_i2c_write_word_regs(const sensor_reg_t reglist[])
 
 	return 0;
 }
+*/
 
 // =======================================================================================
 
@@ -1244,19 +1283,19 @@ uint8_t arducam_read_fifo(void)
 void arducam_burst_read_fifo(uint8_t *buf, uint32_t len, uint8_t op)
 {
 	if (op == 10) {
-	    spi_deselect(ARDUCAM_SPI);
+	    spi_device_deselect(ARDUCAM_SPI);
 	    return;
 	}
 	if ((!buf) || (len == 0)) return;
 
 	if (op == 1) {
 		buf[0] = 0x3C;
-		spi_select(ARDUCAM_SPI);
+		spi_device_select(ARDUCAM_SPI, 0);
 	}
 
-	taskDISABLE_INTERRUPTS();
-    spi_master_op(ARDUCAM_SPI, 1, len, buf, buf);
-    taskENABLE_INTERRUPTS();
+	//taskDISABLE_INTERRUPTS();
+	spi_transfer_data(ARDUCAM_SPI, buf, buf, 1, len);
+    //taskENABLE_INTERRUPTS();
 }
 
 uint8_t arducam_read_reg(uint8_t addr)
@@ -1317,3 +1356,4 @@ void arducam_set_format(image_format_t fmt)
 	myCAM.m_fmt = fmt;
 }
 
+#endif

@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, Lua net module
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -152,7 +152,9 @@ static const LUA_REG_TYPE net_map[] = {
 	{ LSTRKEY( "stat"       ),	 LFUNCVAL ( lnet_stat     ) },
 	{ LSTRKEY( "lookup"     ),	 LFUNCVAL ( lnet_lookup   ) },
 	{ LSTRKEY( "ping"       ),	 LFUNCVAL ( lnet_ping     ) },
+#if CONFIG_WIFI_ENABLED && CONFIG_LUA_RTOS_LUA_USE_NET
 	{ LSTRKEY( "wf"         ),	 LROVAL   ( wifi_map      ) },
+#endif
 	{ LSTRKEY( "service"    ),	 LROVAL   ( service_map   ) },
 	{ LSTRKEY( "error"      ),	 LROVAL   ( net_error_map ) },
 	{ LNILKEY, LNILVAL }

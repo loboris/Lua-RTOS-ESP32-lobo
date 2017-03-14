@@ -29,7 +29,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_SPI
+#if CONFIG_LUA_RTOS_LUA_USE_SPI
 
 #include "lua.h"
 #include "lualib.h"
@@ -38,51 +38,135 @@
 #include "error.h"
 #include "spi.h"
 #include "modules.h"
+#include <string.h>
 
-#include <drivers/spi.h>
+#include <drivers/espi.h>
 
 // This variables are defined at linker time
-extern LUA_REG_TYPE spi_error_map[];
+extern LUA_REG_TYPE espi_error_map[];
 
+
+//--------------------------------------------------------------------------------------------------------
+static esp_err_t _spi_sendrecv(espi_userdata *spi, uint8_t *outdata, uint8_t *indata, int outlen, int inlen)
+{
+    spi_transaction_t t;
+
+    memset(&t, 0, sizeof(t));	//Zero out the transaction
+
+    t.length = 8 * outlen; //spi->data_bits * outlen;
+    if (outlen != inlen) t.rxlength = spi->data_bits * inlen;
+    t.tx_buffer = outdata;
+    t.rx_buffer = indata;
+
+    //Transmit!
+    esp_err_t err = spi_device_transmit(spi->spi, &t);
+
+    if (inlen > 0) {
+		for (int i=0; i<inlen; i++) {
+			printf("%02x ", indata[i]);
+		}
+		printf("\r\n");
+    }
+    return err;
+}
+
+
+//--------------------------------------------------------------------------------------------------------
+static esp_err_t spi_sendrecv(espi_userdata *spi, uint8_t *outdata, uint8_t *indata, int outlen, int inlen)
+{
+	spi_transfer_data(spi->spi, outdata, indata, outlen, inlen);
+    if (inlen > 0) {
+		for (int i=0; i<inlen; i++) {
+			printf("%02x ", indata[i]);
+		}
+		printf("\r\n");
+    }
+    return ESP_OK;
+}
+
+
+/*
+ * spi_instance = spi.config(spi_interface, spi.MASTER, cs, speed_KHz, bits, mode [,sdi, sdo, sck])
+ */
+//===================================
 static int lspi_setup(lua_State* L) {
-	int id, data_bits, is_master, cs;
-	driver_error_t *error;
+	int id, data_bits, is_master, cs, sdi=0, sdo=0, sck=0;
 	uint32_t clock;
 	int spi_mode = 0;
 
 	id = luaL_checkinteger(L, 1);
+	if ((id < 2) || (id > 3)) {
+    	return luaL_error(L, "Only SPI2 (HSPI) and SPI3 (VSPI) can be used");
+	}
+
 	is_master = luaL_checkinteger(L, 2) == 1;
+	if (!is_master) {
+    	return luaL_error(L, "Only master mode supported");
+	}
+
 	cs = luaL_checkinteger(L, 3);
 	clock = luaL_checkinteger(L, 4);
 	data_bits = luaL_checkinteger(L, 5);
 	spi_mode = luaL_checkinteger(L, 6);
+	if ((spi_mode < 0) || (spi_mode > 3)) {
+		return luaL_error(L, "invalid mode number, modes 0~3 supported");
+	}
 
-	spi_userdata *spi = (spi_userdata *)lua_newuserdata(L, sizeof(spi_userdata));
+	if (lua_gettop(L) > 6) {
+		// Get sdi, sdo,sck pins
+		sdi = luaL_checkinteger(L, 7);
+		sdo = luaL_checkinteger(L, 8);
+		sck = luaL_checkinteger(L, 9);
+	}
+	else {
+		// get default pins
+		spi_get_native_pins(id-1, &sdi, &sdo, &sck);
+	}
 
-	spi->spi = id;
-	spi->cs = cs;
-	spi->speed = clock;
-	spi->mode = spi_mode;
-	spi->bits = data_bits;
+	espi_userdata *spi = (espi_userdata *)lua_newuserdata(L, sizeof(espi_userdata));
+	memset(spi, 0, sizeof(espi_userdata));
 
-    if ((error = spi_init(spi->spi, is_master))) {
+	spi->spi = NULL;
+	spi->bus = id-1;
+
+	spi->devcfg.spics_io_num  = -1;
+	spi->devcfg.spics_ext_io_num  = cs;
+	spi->devcfg.spidc_io_num  = -1;
+	spi->devcfg.clock_speed_hz = clock * 1000;
+	spi->devcfg.mode = spi_mode;
+	spi->data_bits = data_bits;
+	spi->devcfg.queue_size = 3;	// We want to be able to queue 3 transactions at a time
+	spi->devcfg.pre_cb = NULL;
+
+	spi->buscfg.miso_io_num = sdi;
+	spi->buscfg.mosi_io_num = sdo;
+	spi->buscfg.sclk_io_num = sck;
+	spi->buscfg.quadwp_io_num=-1;
+	spi->buscfg.quadhd_io_num=-1;
+
+	esp_err_t err;
+	driver_error_t *error = espi_init(spi->bus, &spi->devcfg, &spi->buscfg, &spi->spi);
+	if (error) {
     	return luaL_driver_error(L, error);
     }
 
-    if ((error = spi_set_mode(spi->spi, spi->mode))) {
-    	return luaL_driver_error(L, error);
-    }
+	/*err = spi_bus_initialize(spi->bus, &spi->buscfg, 1);
+	if (err) {
+    	return luaL_error(L, "Error initializing spi bus (%d)", err);
+	}
 
-    if ((error = spi_set_speed(spi->spi, spi->speed))) {
-    	return luaL_driver_error(L, error);
-    }
+    err = spi_bus_add_device(spi->bus, &spi->devcfg, &spi->buscfg, &spi->spi);
+	if (err) {
+    	return luaL_error(L, "Error initializing spi device (%d)", err);
+	}*/
 
-    if ((error = spi_set_cspin(spi->spi, spi->cs))) {
-    	return luaL_driver_error(L, error);
+    err = spi_device_select(spi->spi, 1);
+	if (err) {
+    	return luaL_error(L, "Error selecting spi (%d)", err);
     }
-
-    if ((error = spi_deselect(spi->spi))) {
-    	return luaL_driver_error(L, error);
+	err = spi_device_deselect(spi->spi);
+	if (err) {
+    	return luaL_error(L, "Error deselecting spi (%d)", err);
     }
 
     luaL_getmetatable(L, "spi");
@@ -91,98 +175,114 @@ static int lspi_setup(lua_State* L) {
 	return 1;
 }
 
+//====================================
 static int lspi_select(lua_State* L) {
-	driver_error_t *error;
-    spi_userdata *spi = NULL;
+	esp_err_t error;
+    espi_userdata *spi = NULL;
 
-    spi = (spi_userdata *)luaL_checkudata(L, 1, "spi");
+    spi = (espi_userdata *)luaL_checkudata(L, 1, "spi");
     luaL_argcheck(L, spi, 1, "spi expected");
 
-    if ((error = spi_set_mode(spi->spi, spi->mode))) {
-    	return luaL_driver_error(L, error);
-    }
-
-    if ((error = spi_set_speed(spi->spi, spi->speed))) {
-    	return luaL_driver_error(L, error);
-    }
-
-    if ((error = spi_set_cspin(spi->spi, spi->cs))) {
-    	return luaL_driver_error(L, error);
-    }
-
-    if ((error = spi_select(spi->spi))) {
-    	return luaL_driver_error(L, error);
+    error = spi_device_select(spi->spi, 0);
+	if (error) {
+    	return luaL_error(L, "Error selecting spi device (%d)", error);
     }
 
     return 0;
 }
 
+//======================================
 static int lspi_deselect(lua_State*L ) {
-	driver_error_t *error;
-    spi_userdata *spi = NULL;
+	esp_err_t error;
+    espi_userdata *spi = NULL;
 
-    spi = (spi_userdata *)luaL_checkudata(L, 1, "spi");
+    spi = (espi_userdata *)luaL_checkudata(L, 1, "spi");
     luaL_argcheck(L, spi, 1, "spi expected");
 
-    if ((error = spi_deselect(spi->spi))) {
-    	return luaL_driver_error(L, error);
+    error = spi_device_deselect(spi->spi);
+	if (error) {
+    	return luaL_error(L, "Error deselecting spi device (%d)", error);
     }
 
     return 0;
 }
 
-
+//-------------------------------------------------------
 static int lspi_rw_helper( lua_State *L, int withread ) {
-	unsigned char value;
+	esp_err_t error = ESP_OK;
+	uint8_t value, outval;
 	const char *sval;
-	spi_userdata *spi = NULL;
+	espi_userdata *spi = NULL;
 
 	int total = lua_gettop(L), i, j;
 
-	spi = (spi_userdata *)luaL_checkudata(L, 1, "spi");
+	spi = (espi_userdata *)luaL_checkudata(L, 1, "spi");
 	luaL_argcheck(L, spi, 1, "spi expected");
 
+    error = spi_device_select(spi->spi, 0);
+	if (error) {
+    	return luaL_error(L, "Error selecting spi device (%d)", error);
+    }
 	size_t len, residx = 1;
 
-	if (withread)
-		lua_newtable(L);
+	if (withread) lua_newtable(L);
 
 	for (i = 2; i <= total; i++) {
-		if(lua_isnumber(L, i)) {
-			spi_transfer(spi->spi, lua_tointeger(L, i), &value);
-			if(withread) {
+		if (lua_isnumber(L, i)) {
+			outval = lua_tointeger(L, i) & 0xFF;
+			if (withread) {
+				error = spi_sendrecv(spi, &outval, &value, 1, 1);
 				lua_pushinteger(L, value);
 				lua_rawseti(L, -2, residx++);
 			}
+			else {
+				error = spi_sendrecv(spi, &outval, NULL, 1, 0);
+			}
+			if (error) break;
 		}
-		else if(lua_isstring( L, i )) {
+		else if (lua_isstring( L, i )) {
 			sval = lua_tolstring(L, i, &len);
-			for(j = 0; j < len; j ++) {
-				spi_transfer(spi->spi, sval[j], &value);
-				if (withread) {
-					lua_pushinteger(L, value);
+			uint8_t rval[len];
+			if (withread) {
+				error = spi_sendrecv(spi, (uint8_t *)sval, rval, len, len);
+			}
+			else {
+				error = spi_sendrecv(spi, (uint8_t *)sval, NULL, len, 0);
+			}
+			if ((!error) && (withread)) {
+				for(j = 0; j < len; j ++) {
+					lua_pushinteger(L, rval[j]);
 					lua_rawseti(L, -2, residx++);
 				}
 			}
+			if (error) break;
 		}
 	}
 
-	return withread ? 1 : 0;
+	esp_err_t err = spi_device_deselect(spi->spi);
+	if (err) error = err;
+
+    lua_pushinteger(L, error);
+
+	return withread ? 2 : 1;
 }
 
+//===================================
 static int lspi_write(lua_State* L) {
 	return lspi_rw_helper(L, 0);
 }
 
+//=======================================
 static int lspi_readwrite(lua_State* L) {
 	return lspi_rw_helper(L, 1);
 }
 
 // Destructor
+//=====================================
 static int lspi_ins_gc (lua_State *L) {
-    spi_userdata *udata = NULL;
+    espi_userdata *udata = NULL;
 
-    udata = (spi_userdata *)luaL_checkudata(L, 1, "spi");
+    udata = (espi_userdata *)luaL_checkudata(L, 1, "spi");
 	if (udata) {
 	//	free(udata->instance);
 	}
@@ -207,7 +307,7 @@ static const LUA_REG_TYPE lspi_ins_map[] = {
 };
 
 static const LUA_REG_TYPE lspi_constants_map[] = {
-	{ LSTRKEY("error"       ),   LROVAL( spi_error_map )},
+	{ LSTRKEY("error"       ),   LROVAL( espi_error_map )},
 	{ LSTRKEY( "MASTER"     ),	 LINTVAL( 1 ) },
 	{ LSTRKEY( "SLAVE"      ),	 LINTVAL( 0 ) },
 	SPI_SPI0

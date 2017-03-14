@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, system init
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -27,11 +27,15 @@
  * this software.
  */
 
+#include "sdkconfig.h"
 #include "luartos.h"
 #include "lua.h"
 #include "esp_log.h"
 #include "esp_vfs.h"
+#include "esp_deep_sleep.h"
 #include "driver/periph_ctrl.h"
+
+#include "vfs/fat.h"
 
 #include <vfs.h>
 #include <string.h>
@@ -49,12 +53,6 @@
 #include <drivers/cpu.h>
 #include <drivers/uart.h>
 
-#include "esp_vfs_fat.h"
-#include "driver/sdmmc_host.h"
-#include "driver/sdmmc_defs.h"
-#include "sdmmc_cmd.h"
-
-//extern void _syscalls_init();
 extern void _pthread_init();
 extern void _signal_init();
 extern void _mtx_init();
@@ -62,6 +60,9 @@ extern void _cpu_init();
 extern void _clock_init();
 
 extern const char *__progname;
+
+// Flash unique id
+uint8_t flash_unique_id[8];
 
 #ifdef RUN_TESTS
 #include <unity.h>
@@ -82,117 +83,44 @@ void *_sys_tests(void *arg) {
 
 #endif
 
-static void sdcard_print_info(const sdmmc_card_t* card)
-{
-	printf("--------------------\r\n");
-	#if SD_1BITMODE
-    printf(" Mode: SPI (1bit)\r\n");
-	#else
-    printf(" Mode:  SD (4bit)\r\n");
-	#endif
-    printf(" Name: %s\r\n", card->cid.name);
-    printf(" Type: %s\r\n", (card->ocr & SD_OCR_SDHC_CAP)?"SDHC/SDXC":"SDSC");
-    printf("Speed: %s (%d MHz)\r\n", (card->csd.tr_speed > 25000000)?"high speed":"default speed", card->csd.tr_speed/1000000);
-    printf(" Size: %u MB\r\n", (uint32_t)(((uint64_t) card->csd.capacity) * card->csd.sector_size / (1024 * 1024)));
-    printf("  CSD: ver=%d, sector_size=%d, capacity=%d read_bl_len=%d\r\n",
-            card->csd.csd_ver,
-            card->csd.sector_size, card->csd.capacity, card->csd.read_block_len);
-    printf("  SCR: sd_spec=%d, bus_width=%d\r\n", card->scr.sd_spec, card->scr.bus_width);
-}
-
-//------------------
-void mount_fatfs() {
-#if USE_FAT
-    if (mount_is_mounted("fat")) {
-    	printf("FAT fs already mounted\r\n");
-    	return;
-    }
-    sdmmc_host_t host = SDMMC_HOST_DEFAULT();
-
-	#if SD_1BITMODE
-    // Use 1-line SD mode
-    host.flags = SDMMC_HOST_FLAG_1BIT;
-	#endif
-    // This initializes the slot without card detect (CD) and write protect (WP) signals.
-    // Modify slot_config.gpio_cd and slot_config.gpio_wp if your board has these signals.
-    sdmmc_slot_config_t slot_config = SDMMC_SLOT_CONFIG_DEFAULT();
-
-    // Options for mounting the filesystem.
-    // If format_if_mount_failed is set to true, SD card will be partitioned and formatted
-    // in case when mounting fails.
-    esp_vfs_fat_sdmmc_mount_config_t mount_config = {
-		#if SD_FORMAT
-    	.format_if_mount_failed = true,
-		#else
-		.format_if_mount_failed = false,
-		#endif
-		.max_files = SD_MAXFILES
-    };
-
-    // Use settings defined above to initialize SD card and mount FAT filesystem.
-    // Note: esp_vfs_fat_sdmmc_mount is an all-in-one convenience function.
-    // Please check its source code and implement error recovery when developing
-    // production applications.
-    sdmmc_card_t* card;
-	esp_log_level_set("*", ESP_LOG_NONE);
-    printf("Mounting SD Card: ");
-
-	esp_err_t ret = esp_vfs_fat_sdmmc_mount("/fat", &host, &slot_config, &mount_config, &card);
-    if (ret != ESP_OK) {
-        if (ret == ESP_FAIL) {
-        	printf("Failed to mount filesystem. May be not formated\r\n");
-        } else {
-        	printf("Failed to initialize. Check connection.\r\n");
-        }
-    }
-    else {
-		// Card has been initialized, print its properties
-    	printf("OK\r\n");
-		sdcard_print_info(card);
-        mount_set_mounted("fat", 1);
-    }
-	esp_log_level_set("*", ESP_LOG_ERROR);
-
-    if (mount_is_mounted("fat")) {
-        // Redirect console messages to /log/messages.log ...
-        closelog();
-        printf("\r\nredirecting console messages to file system ...\r\n");
-        openlog(__progname, LOG_NDELAY , LOG_LOCAL1);
-    } else {
-    	printf("\r\ncan't redirect console messages to file system, an SDCARD is needed\r\n");
-    }
-#endif
-}
-
-//--------------------
-void unmount_fatfs() {
-#if USE_FAT
-    if (mount_is_mounted("fat")) {
-    	esp_err_t ret = esp_vfs_fat_sdmmc_unmount();
-        if (ret != ESP_OK) {
-           	printf("FAT fs was not mounted\r\n");
-        }
-        mount_set_mounted("fat", 0);
-
-    	printf("FAT fs unmounted\r\n");
-    }
-    else {
-    	printf("FAT fs was not mounted\r\n");
-    }
-#endif
-}
-
-
 void _sys_init() {
 	struct timeval tv;
     struct tm timeinfo;
 	time_t now;
 	char buf[64] = {'\0'};
 
+	// Set default power down mode for all RTC power domains in deep sleep
+	#if CONFIG_LUA_RTOS_DEEP_SLEEP_RTC_PERIPH
+	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+	#else
+	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH, ESP_PD_OPTION_ON);
+	#endif
+
+	#if CONFIG_LUA_RTOS_DEEP_SLEEP_RTC_SLOW_MEM
+	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
+	#else
+	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_ON);
+	#endif
+
+	#if CONFIG_LUA_RTOS_DEEP_SLEEP_RTC_FAST_MEM
+	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_ON);
+	#else
+	    esp_deep_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_ON);
+	#endif
+
 	esp_log_level_set("*", ESP_LOG_ERROR);
 
 	// Disable hardware modules modules
 	periph_module_disable(PERIPH_LEDC_MODULE);
+
+	#if CONFIG_LUA_RTOS_READ_FLASH_UNIQUE_ID
+	// Get flash unique id
+	uint8_t command[13] = {0x4b, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00};
+	uint8_t response[13];
+
+	spi_flash_send_cmd(sizeof(command), command, response);
+	memcpy(flash_unique_id, response + 5, sizeof(flash_unique_id));
+	#endif
 
 	// Init important things for Lua RTOS
 	_clock_init();
@@ -208,16 +136,17 @@ void _sys_init() {
 	esp_vfs_unregister("/dev/uart");
 	vfs_tty_register();
 
-	printf("Booting Lua RTOS... \r\n");
+	printf("\r\n--------------------\r\n");
+	printf("nBooting Lua RTOS...\r\n");
 	delay(100);
 
-	// Print some startup info
 	//console_clear();
 
+	// Print some startup info, set buut count, set time
 	if (sleep_check != SLEEP_CHECK_ID) boot_count = 0;
 	else boot_count++;
 
-	cpu_reset_reason(buf);
+	cpu_reset_reasons(buf);
 	printf("\r\n Boot reason: %s\r\n", buf);
 	if (boot_count) printf("  Boot count: %u\r\n", boot_count);
 
@@ -247,10 +176,12 @@ void _sys_init() {
 
 	printf("  /\\       /\\\r\n");
     printf(" /  \\_____/  \\\r\n");
-    printf("/______________\\\r\n");
+    printf("/_____________\\\r\n");
     printf("W H I T E C A T\r\n\r\n");
 
     printf("Lua RTOS %s build %d Copyright (C) 2015 - 2017 whitecatboard.org\r\n", LUA_OS_VER, BUILD_TIME);
+
+    printf("board type %s\r\n", LUA_RTOS_BOARD);
 
 	#ifdef RUN_TESTS
 		// Create and run a pthread for tests
@@ -263,7 +194,7 @@ void _sys_init() {
 		pthread_attr_init(&attr);
 
 		// Set stack size
-	    pthread_attr_setstacksize(&attr, LUA_TASK_STACK);
+	    pthread_attr_setstacksize(&attr, CONFIG_LUA_RTOS_LUA_STACK_SIZE);
 
 	    // Set priority
 	    sched.sched_priority = LUA_TASK_PRIORITY;
@@ -285,6 +216,7 @@ void _sys_init() {
     openlog(__progname, LOG_CONS | LOG_NDELAY, LOG_LOCAL1);
 
     cpu_show_info();
+    cpu_show_flash_info();
 
     //Init filesystems
 	#if USE_NET_VFS
@@ -295,8 +227,10 @@ void _sys_init() {
     	vfs_spiffs_register();
     #endif
 
-   	mount_fatfs();
+	#if USE_FAT
+    	mount_fatfs();
+    #endif
         
     // Continue init ...
-    printf("\r\n");
+    printf("\n");
 }

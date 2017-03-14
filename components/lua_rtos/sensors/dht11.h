@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, DHT11 sensor (temperature & humidity)
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -26,9 +26,16 @@
  * arising out of or in connection with the use or performance of
  * this software.
  */
+
+#include "luartos.h"
+
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
+
 #include <sys/driver.h>
 
 #include <drivers/sensor.h>
 
 driver_error_t *dht11_setup(sensor_instance_t *unit);
 driver_error_t *dht11_acquire(sensor_instance_t *unit, sensor_value_t *values);
+
+#endif

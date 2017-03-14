@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, pthread implementation over FreeRTOS
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -28,6 +28,8 @@
  */
 
 #include "luartos.h"
+
+#include "esp_attr.h"
 
 #include "lua.h"
 #include "thread.h"
@@ -56,6 +58,7 @@ struct pthreadTaskArg {
     void *args;
     int id;
     int initial_state;
+    int stack;
 };
   
 void pthreadTask(void *task_arguments);
@@ -133,6 +136,7 @@ int _pthread_create(pthread_t *id, int priority, int stacksize, int cpu, int ini
     }
 
     taskArgs->id = *id;
+    taskArgs->stack = stacksize;
     thread->thread = *id;
     
     // This is the parent thread. After the creation of the new task related to new thread
@@ -271,7 +275,7 @@ sig_t _pthread_signal(int s, sig_t h) {
     return NULL;
 }
 
-void _pthread_queue_signal(int s) {
+void IRAM_ATTR _pthread_queue_signal(int s) {
     struct pthread *thread; // Current thread
     int index;
     
@@ -311,7 +315,7 @@ void _pthread_process_signal(void) {
 }
 #endif
 
-int _pthread_has_signal(int s) {
+int IRAM_ATTR _pthread_has_signal(int s) {
     struct pthread *thread; // Current thread
     int index;
     
@@ -360,6 +364,34 @@ int _pthread_core(pthread_t id) {
     }
 
     return (int)uxGetCoreID(thread->task);
+}
+
+int _pthread_stack(pthread_t id) {
+    struct pthread *thread;
+    int res;
+
+    // Get thread
+    res = list_get(&thread_list, id, (void **)&thread);
+    if (res) {
+        errno = res;
+        return res;
+    }
+
+    return (int)uxGetStack(thread->task);
+}
+
+int _pthread_stack_free(pthread_t id) {
+    struct pthread *thread;
+    int res;
+
+    // Get thread
+    res = list_get(&thread_list, id, (void **)&thread);
+    if (res) {
+        errno = res;
+        return res;
+    }
+
+    return (int)uxTaskGetStackHighWaterMark(thread->task);
 }
 
 int _pthread_suspend(pthread_t id) {
@@ -431,10 +463,13 @@ void pthreadTask(void *taskArgs) {
 	// Store CPU core id when thread is running
 	uxSetCoreID(xPortGetCoreID());
 
+	// Store stack size
+	uxSetStack(args->stack);
+
     // Set thread id
     uxSetThreadId(args->id);
 
-#if LUA_USE_THREAD
+#if CONFIG_LUA_RTOS_LUA_USE_THREAD
 	if (args->args) {
 		// Set Lua context into TCB
 		uxSetLuaState(((struct lthread *)args->args)->L);
@@ -450,7 +485,7 @@ void pthreadTask(void *taskArgs) {
     
     // Call start function
     int *status = args->pthread_function(args->args);
-#if LUA_USE_THREAD
+#if CONFIG_LUA_RTOS_LUA_USE_THREAD
     if (status) {
         if (*status != LUA_OK) {
             struct lthread *thread;

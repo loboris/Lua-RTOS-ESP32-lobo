@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, PING))) #28015 sensor (Distance Sensor)
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -26,6 +26,10 @@
  * arising out of or in connection with the use or performance of
  * this software.
  */
+
+#include "luartos.h"
+
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
 
 #include "ping28015.h"
 #include "freertos/FreeRTOS.h"
@@ -155,3 +159,5 @@ driver_error_t *ping28015_acquire(sensor_instance_t *unit, sensor_value_t *value
 
 	return NULL;
 }
+
+#endif

@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, Lora WAN Lua Module
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -27,13 +27,15 @@
  * this software.
  */
 
+#include "luartos.h"
+
 #include "lua.h"
 #include "lualib.h"
 #include "lauxlib.h"
 #include "modules.h"
 #include "error.h"
 
-#if LUA_USE_LORA
+#if CONFIG_LUA_RTOS_LUA_USE_LORA
 
 #include <string.h>
 #include <stdlib.h>
@@ -419,8 +421,8 @@ static const LUA_REG_TYPE lora_map[] = {
 
 	// Error definitions
 	{LSTRKEY("error"), 			 LROVAL( lora_error_map )},
-	
-    {LNILKEY, LNILVAL}
+
+	{LNILKEY, LNILVAL}
 };
 
 int luaopen_lora(lua_State* L) {

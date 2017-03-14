@@ -15,6 +15,7 @@
   * Supported  are many graphics elements, fixed width and proportional fonts (7 included, unlimited number of fonts from file)
   * jpeg, bmp and raw bitmap images.
   * Touch screen supported
+  * Read from display memory supported
 
 * cam
   * support for Arducam-Mini-2MP camera module, uses SPI & I2C interfaces
@@ -32,44 +33,56 @@
 
 * io
   * added support for ymodem file transfer (io.ymsend & io.ymreceive functions)
+  * attributes functions returns file/directors type, size and timestamp
 
 * os
   * added function os.exists() for checking file existance
-  * os.ls() function improved, lists file timestamps (sfpiffs&fat), free and total drive space, number of files in directory
-  * os.resetreason() corectly reports boot/reset reason
-  * os.bootcount() function added (reboot count from last power on)
+  * added calibration for sleep function
+  * datetime preserved after sleep
+  * bootreason: added text boot reason description
+  * added sleepcalib() function to calibrate sleep time
+  * os.resetreason() returns reset reason as numeric and string (descriptive) values
+  * added **os.list()** function (enhanced os.ls()): lists file timestamps (sfpiffs&fat), free and total drive space, number of files in directory, match files by wildchard
+  * added os.mountfat() & os.unmountfat() functions
+  * added os.compile() function to compile lua source file to lua bytecode. Can also list the bytecode, usefull for learning how Lua virtual machine works
 
 * i2c
   * added high level functions: send, receive, sendreceive
 
 * spi
-  * spi driver to support spi on any pin (needed fot tft module)
+  * Based on new espi driver
 
 * net.http
   * start & stop functions renamed to serverstart & serverstop
   * added http client functions get, post, postfile
 
 * sensor
-  * added i2c support 
-  * enhanced sensor list function
+  * added config options do individually enable/disable DS1820 & BME280 sensors
   * support for BME280 temperature, humidity and pressure sensors in I2C mode
-  * support for 1-wire devices on multiple 1-wire buses (Now added to Whitecat's repo)
-  * DS1820 temperature sensors support (including parasite power support) (Now added to Whitecat's repo)
 
 * spiffs
-  * updated to latest spiffs commits
-  * added support for file timestamp
-  * added free & total space info in os.ls()
+  * removed the complete implementation and replaced with slightly different one
+  * spiffs source files are unchanged original files prom pellepl's repository
+  * added timestamp to files/directories
+  * mkspiffs sets files/directories timestamp
+  * formating spiffs on startup does not reset the system
 
 * sd card support & fat fs
-  * FAT FS on SDCARD changed to use **esp-idf SDMMC** and fat drivers
-  * sd card can be connected in 1-line (spi) or 4-line (sd) mode
+  * removed the complete implementation and replaced with driver based on esp-idf sdmmc driver
+  * sdcard can be connected in 1-bit or 4-bit mode
+  * os.mountfat() & os.unmountfat() functions provided to mount sdcard if inserted after boot or change the card
 
 * sleep & boot
   * os.sleep() function improved, time is preserved after sleep
   * sleep time calibration added, os.setsleepcalib() function
   * boot count added and reported at start and available as Lua function
   * boot reason reported on boot and available as Lua function
+
+* ESPI DRIVER:
+  * NEW espi driver implemented, based on esp-idf spi_master driver
+  * Queued/DMA & direct/nonDMA transfers combined
+  * includes special support for display functions
+
 
 ### Other
 
@@ -87,7 +100,7 @@ Lua RTOS is the main-core of the Whitecat ecosystem, that is being developed by 
 
 Lua RTOS has a 3-layers design:
 
-1. In the top layer there is a Lua 5.3.2 interpreter which offers to the programmer all resources provided by Lua 5.3.2 programming language, plus special modules for access the hardware (PIO, ADC, I2C, RTC, etc ...) and middleware services provided by Lua RTOS (LoRa WAN, MQTT, ...).
+1. In the top layer there is a Lua 5.3.4 interpreter which offers to the programmer all resources provided by Lua 5.3.4 programming language, plus special modules for access the hardware (PIO, ADC, I2C, RTC, etc ...) and middleware services provided by Lua RTOS (LoRa WAN, MQTT, ...).
 
 2. In the middle layer there is a Real-Time micro-kernel, powered by FreeRTOS. This is the responsible for that things happen in the expected time.
 
@@ -107,22 +120,38 @@ The Lua RTOS compatible boards can be programmed in two ways: using the Lua prog
 
 In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have more information about this.
 
-# How to build?
+# How to get Lua RTOS firmware?
 
-1. Install required drivers:
+## Prerequisites
 
-   Please note you need to download and install drivers for Win32 and MacOSX versions. The GNU/Linux version doesn't need any drivers, as usual ;)
+1. Please note you need probably to download and install drivers for your board's USB-TO-SERIAL adapter for Windows and Mac OSX versions. The GNU/Linux version usually doesn't need any drivers. This drivers are required for connect to your board through a serial port connection.
 
-   This drivers are required for connect to the Lua RTOS console through a serial port connection.
+   | Board              |
+   |--------------------|
+   | [WHITECAT ESP32 N1](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers)  | 
+   | [ESP32 CORE](https://www.silabs.com/products/development-tools/software/usb-to-uart-bridge-vcp-drivers)  | 
+   | [ESP32 THING](http://www.ftdichip.com/Drivers/VCP.htm)  | 
 
-   You can download this drivers following one of this links:
+## Method 1: get a precompiled firmware
 
-   * [Linux 3.x.x](https://www.silabs.com/Support%20Documents/Software/Linux_3.x.x_VCP_Driver_Source.zip)
-   * [Linux 2.6.x](https://www.silabs.com/Support%20Documents/Software/Linux_2.6.x_VCP_Driver_Source.zip)
-   * [Mac OSX](https://www.silabs.com/Support%20Documents/Software/Mac_OSX_VCP_Driver.zip)
-   * [Windows](https://www.silabs.com/Support%20Documents/Software/CP210x_Windows_Drivers.zip)
+1. Install esptool (the ESP32 flasher utility), following  [this instructions](https://github.com/espressif/esptool).
 
-   You can get a full list of available drivers and versions [here](https://www.silabs.com/products/mcu/Pages/USBtoUARTBridgeVCPDrivers.aspx)
+1. Get the precompiled binaries for your board:
+
+   | Board              |
+   |--------------------|
+   | [WHITECAT ESP32 N1] (http://whitecatboard.org/firmware.php?board=WHITECAT-ESP32-N1)  | 
+   | [ESP32 CORE] (http://whitecatboard.org/firmware.php?board=ESP32-CORE-BOARD)  | 
+   | [ESP32 THING] (http://whitecatboard.org/firmware.php?board=ESP32-THING)  | 
+   | [GENERIC] (http://whitecatboard.org/firmware.php?board=GENERIC)  | 
+
+2. Uncompress to your favorite folder:
+
+   ```lua
+   unzip LuaRTOS.10.WHITECAT-ESP32-N1.1488209955.zip
+   ```
+
+## Method 2: build by yourself
 
 1. Install ESP32 toolchain for your desktop platform. Please, follow the instructions provided by ESPRESSIF:
    * [Windows] (https://github.com/espressif/esp-idf/blob/master/docs/windows-setup.rst)
@@ -156,28 +185,43 @@ In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have mo
    ```lua
    source ./env
    ```
-   
-1. Compile:
 
-   First configure Lua RTOS options (located in Component config --> Lua RTOS):
- 
+1. Set the default configuration for your board:
+
+   | Board              | Run this command                                     |
+   |--------------------|------------------------------------------------------|
+   | WHITECAT ESP32 N1  | make SDKCONFIG_DEFAULTS=WHITECAT-ESP32-N1 defconfig  |
+   | ESP32 CORE         | make SDKCONFIG_DEFAULTS=ESP32-CORE-BOARD defconfig   |
+   | ESP32 THING        | make SDKCONFIG_DEFAULTS=ESP32-THING defconfig        |
+   | GENERIC            | make SDKCONFIG_DEFAULTS=GENERIC defconfig            |
+
+1. Change the default configuration:
+
+   You can change the default configuration doing:
+   
    ```lua
    make menuconfig
    ```
+   
+   Remember to check the device name for your board's USB-TO-SERIAL adapter under the "Serial flasher config / Default serial port" category.
+   
+1. Compile:
 
-   Build Lua RTOS, and flash to your ESP32 board:
+   Build Lua RTOS, and flash it to your ESP32 board:
 
    ```lua
    make flash
    ```
 
-   Flash spiffs file system image to your ESP32 board:
+   Flash the spiffs file system image to your ESP32 board:
+   
    ```lua
    make flashfs
    ```
-1. Connect to the console:
+   
+# Connect to the console
 
-   You can connect to the Lua RTOS console using your favorite terminal emulator program, such as picocom, minicom, hyperterminal, putty, etc ... The connection parameters are:
+You can connect to the Lua RTOS console using your favorite terminal emulator program, such as picocom, minicom, hyperterminal, putty, etc ... The connection parameters are:
 
    * speed: 115200 bauds
    * data bits: 8
@@ -197,7 +241,7 @@ In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have mo
    /_____________\
    W H I T E C A T
 
-   Lua RTOS beta 0.1 build 1479953238 Copyright (C) 2015 - 2016 whitecatboard.org
+   Lua RTOS beta 0.1 build 1479953238 Copyright (C) 2015 - 2017 whitecatboard.org
    cpu ESP32 at 240 Mhz
    spiffs0 start address at 0x180000, size 512 Kb
    spiffs0 mounted
@@ -209,7 +253,7 @@ In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have mo
    fat0 mounted
    redirecting console messages to file system ...
 
-   Lua RTOS beta 0.1 powered by Lua 5.3.2
+   Lua RTOS beta 0.1 powered by Lua 5.3.4
 
    Executing /system.lua ...
    Executing /autorun.lua ...

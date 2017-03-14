@@ -42,7 +42,9 @@
 #include <drivers/gpio.h>
 #include "ws2812.h"
 
-#define DEBUG 1
+#if CONFIG_LUA_RTOS_LUA_USE_LED
+
+#define DEBUG_WS2812_DRIVER 0
 
 
 #define RMTCHANNEL          0 /* There are 8 possible channels */
@@ -356,3 +358,5 @@ void ws2812_setColors(uint16_t length, rgbVal *array)
 
   return;
 }
+
+#endif

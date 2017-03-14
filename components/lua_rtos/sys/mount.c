@@ -2,7 +2,7 @@
  * Lua RTOS, minimal mount capabilities. Mount are only allowed in
  * the default root's directory.
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -37,7 +37,7 @@
 #include <stdio.h>
 #include <errno.h>
 
-extern char *getcwd(char *pt, size_t size);
+char *getcwd(char *buf, size_t size);
 
 // Mount device structure
 struct mountd {

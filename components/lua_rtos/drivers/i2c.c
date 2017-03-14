@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, I2C driver
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -28,8 +28,6 @@
  */
 
 #include "luartos.h"
-
-#if USE_I2C
 
 #include "freertos/FreeRTOS.h"
 #include "driver/i2c.h"
@@ -434,5 +432,3 @@ driver_error_t *i2c_read(int unit, int *transaction, char *data, int len) {
 }
 
 DRIVER_REGISTER(I2C,i2c,i2c_locks,i2c_init,NULL);
-
-#endif

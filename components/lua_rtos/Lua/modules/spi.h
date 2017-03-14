@@ -35,14 +35,6 @@
 #include <drivers/spi.h>
 #include <drivers/cpu.h>
 
-typedef struct {
-    unsigned char spi;
-    unsigned char cs;
-    unsigned int  speed;
-    unsigned int  mode;
-    unsigned int  bits;
-} spi_userdata;
-
 #ifdef CPU_SPI0
 #define SPI_SPI0 {LSTRKEY(CPU_SPI0_NAME), LINTVAL(CPU_SPI0)},
 #else

@@ -17,8 +17,8 @@
 
 #include <sys/driver.h>
 
-#if LUA_USE_LORA
-#if USE_LMIC
+#if CONFIG_LUA_RTOS_LUA_USE_LORA
+#if CONFIG_LUA_RTOS_USE_LMIC
 
 // Dependencies required for the LoRa MAC in C to run.
 // These settings can be adapted to the underlying system.
@@ -91,7 +91,7 @@ u1_t radio_rand1 (void);
 int  radio_init (void);
 void radio_irq_handler (u1_t dio);
 driver_error_t *os_init (void);
-void os_runloop(void * pvParameters);
+void *os_runloop(void * pvParameters);
 
 //================================================================================
 

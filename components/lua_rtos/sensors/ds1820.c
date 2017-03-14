@@ -4,6 +4,11 @@
  * based on TM_ONEWIRE (author  Tilen Majerle)
  */
 
+#include "luartos.h"
+
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
+#if CONFIG_LUA_RTOS_LUA_USE_OW
+
 #include <math.h>
 #include <string.h>
 #include <stdio.h>
@@ -111,6 +116,7 @@ static owState_t TM_DS18B20_Start(uint8_t dev, unsigned char *ROM) {
 }
 
 //-------------------------------------------------
+#if 0
 static owState_t TM_DS18B20_StartAll(uint8_t dev) {
   if (getPowerMode(dev)) return owError_NoDevice;
 
@@ -125,6 +131,7 @@ static owState_t TM_DS18B20_StartAll(uint8_t dev) {
 
   return ow_OK;
 }
+#endif
 
 //--------------------------------------------------------------------------------------
 static owState_t TM_DS18B20_Read(uint8_t dev, unsigned char *ROM, double *destination) {
@@ -772,3 +779,6 @@ driver_error_t *ds1820_get(sensor_instance_t *unit, const char *id, sensor_value
 
 	return NULL;
 }
+
+#endif
+#endif

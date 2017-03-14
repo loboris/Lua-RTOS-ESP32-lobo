@@ -12,375 +12,173 @@
 #include "stdio.h"
 #include <sys/driver.h>
 #include <drivers/gpio.h>
-#include "soc/spi_reg.h"
+//#include "soc/spi_reg.h"
 
-#if LUA_USE_TFT
+//#if LUA_USE_TFT
+#if CONFIG_LUA_RTOS_LUA_USE_TFT
 
 uint16_t *tft_line = NULL;
 uint16_t _width = 320;
 uint16_t _height = 240;
 
+spi_device_handle_t disp_spi = NULL;
+static spi_device_handle_t ts_spi = NULL;
+
+//This function is called (in irq context!) just before a transmission starts. It will
+//set the D/C line to the value indicated in the user field.
+static void IRAM_ATTR disp_spi_pre_transfer_callback(spi_transaction_t *t)
+{
+    int dc=(int)t->user;
+    gpio_set_level(PIN_NUM_DC, dc);
+}
+
+static spi_bus_config_t buscfg = {0};
+static spi_device_interface_config_t disp_devcfg = {0};
+static spi_device_interface_config_t ts_devcfg = {0};
+
 static int colstart = 0;
 static int rowstart = 0;	// May be overridden in init func
-
-static int disp_dc = PIN_NUM_DC;
 
 int TFT_type = -1;
 
 //==============================================================================
 
 #define DELAY 0x80
-#define SWAPBYTES(i) ((i>>8) | (i<<8))
-#define DC_CMD ( gpio_set_level(disp_dc, 0) )
-#define DC_DATA ( gpio_set_level(disp_dc, 1) )
 
 // ======== Low level TFT SPI functions ========================================
 
-//---------------------------------------------------------
-static void IRAM_ATTR spi_transfer_wd(int unit, int bits) {
-	// Load send buffer
-	SET_PERI_REG_BITS(SPI_MOSI_DLEN_REG(unit), SPI_USR_MOSI_DBITLEN, bits, SPI_USR_MOSI_DBITLEN_S);
-	SET_PERI_REG_BITS(SPI_MISO_DLEN_REG(unit), SPI_USR_MISO_DBITLEN, 0, SPI_USR_MISO_DBITLEN_S);
-	// Start transfer
-	SET_PERI_REG_MASK(SPI_CMD_REG(unit), SPI_USR);
-}
-
-//--------------------------------------------------
-static void IRAM_ATTR spi_transfer_cmd(int8_t cmd) {
-	int unit = (DISP_SPI) & 3;
-
-	// Wait for SPI bus ready
-	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-    DC_CMD;
-    WRITE_PERI_REG((SPI_W0_REG(unit)), (uint32_t)(cmd));
-    spi_transfer_wd(unit, 7);
-}
-
-//-----------------------------------------------------------------------------------------------------------------
-static void IRAM_ATTR spi_transfer_data(int unit, uint8_t *data, uint8_t *indata, uint32_t wrlen, uint32_t rdlen) {
-	unit &= 3;
-	uint32_t bits;
-	uint32_t wd;
-	uint8_t bc;
-
-	if ((data) && (wrlen > 0)) {
-		uint8_t idx;
-		uint32_t count;
-
-		bits = 0;
-		idx = 0;
-		count = 0;
-		// Wait for SPI bus ready
-		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-		DC_DATA;
-
-		while (count < wrlen) {
-			wd = 0;
-			for (bc=0;bc<32;bc+=8) {
-				wd |= (uint32_t)data[count] << bc;
-				count++;
-				bits += 8;
-				if (count == wrlen) break;
-			}
-			WRITE_PERI_REG((SPI_W0_REG(unit) + (idx << 2)), wd);
-			idx++;
-			if (idx == 16) {
-				spi_transfer_wd(unit, bits-1);
-				bits = 0;
-				idx = 0;
-				if (count < wrlen) {
-					// Wait for SPI bus ready
-					while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-				}
-			}
-		}
-		if (bits > 0) {
-			spi_transfer_wd(unit, bits-1);
-		}
-	}
-
-	if (!indata) return;
-
-	uint8_t rdidx;
-	uint32_t rdcount = rdlen;
-	uint32_t rd_read = 0;
-    while (rdcount > 0) {
-    	//read data
-    	if (rdcount <= 64) bits = rdcount * 8;
-    	else bits = 64 * 8;
-
-    	// Wait for SPI bus ready
-		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-
-		SET_PERI_REG_BITS(SPI_MOSI_DLEN_REG(unit), SPI_USR_MOSI_DBITLEN, 0, SPI_USR_MOSI_DBITLEN_S);
-		SET_PERI_REG_BITS(SPI_MISO_DLEN_REG(unit), SPI_USR_MISO_DBITLEN, bits-1, SPI_USR_MISO_DBITLEN_S);
-		// Start transfer
-		SET_PERI_REG_MASK(SPI_CMD_REG(unit), SPI_USR);
-    	// Wait for SPI bus ready
-		while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-
-		rdidx = 0;
-    	while (bits > 0) {
-			wd = READ_PERI_REG((SPI_W0_REG(unit) + (rdidx << 2)));
-			rdidx++;
-			for (bc=0;bc<32;bc+=8) {
-				indata[rd_read++] = (uint8_t)((wd >> bc) & 0xFF);
-				rdcount--;
-				bits -= 8;
-				if (rdcount == 0) break;
-			}
-    	}
-    }
-}
-
-//----------------------------------------------------------------------------------------------
-static void IRAM_ATTR spi_transfer_addrwin(uint8_t *x1, uint8_t *x2, uint8_t *y1, uint8_t *y2) {
-	int unit = (DISP_SPI) & 3;
-	uint32_t wd;
-
-	spi_transfer_cmd(TFT_CASET);
-	wd = (uint32_t)x1[1];
-	wd |= (uint32_t)x1[0] << 8;
-	wd |= (uint32_t)x2[1] << 16;
-	wd |= (uint32_t)x2[0] << 24;
-	// Wait for SPI bus ready
-	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-    DC_DATA;
-    WRITE_PERI_REG((SPI_W0_REG(unit)), wd);
-    spi_transfer_wd(unit, 31);
-
-    spi_transfer_cmd(TFT_PASET);
-	wd = (uint32_t)y1[1];
-	wd |= (uint32_t)y1[0] << 8;
-	wd |= (uint32_t)y2[1] << 16;
-	wd |= (uint32_t)y2[0] << 24;
-	// Wait for SPI bus ready
-	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-    DC_DATA;
-    WRITE_PERI_REG((SPI_W0_REG(unit)), wd);
-    spi_transfer_wd(unit, 31);
-}
-
-//--------------------------------------------------------
-static void IRAM_ATTR spi_transfer_pixel(uint8_t *color) {
-	int unit = (DISP_SPI) & 3;
-	uint32_t wd;
-	spi_transfer_cmd(TFT_RAMWR);
-
-	wd = (uint32_t)color[1];
-	wd |= (uint32_t)color[0] << 8;
-	// Wait for SPI bus ready
-	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-    DC_DATA;
-    WRITE_PERI_REG((SPI_W0_REG(unit)), wd);
-    spi_transfer_wd(unit, 15);
-}
-
-//---------------------------------------------------------------------------------------
-static void IRAM_ATTR spi_transfer_color_rep(uint8_t *color, uint32_t len, uint8_t rep) {
-	int unit = (DISP_SPI) & 3;
-	uint8_t idx;
-	uint32_t count;
-	uint32_t wd;
-	uint32_t bits;
-
-	spi_transfer_cmd(TFT_RAMWR);
-
-	bits = 0;
-	idx = 0;
-	count = 0;
-	// Wait for SPI bus ready
-	while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-	DC_DATA;
-
-	while (count < len) {
-		if (rep) {
-			wd = (uint32_t)color[1];
-			wd |= (uint32_t)color[0] << 8;
-		}
-		else {
-			wd = (uint32_t)color[count<<1];
-			wd |= (uint32_t)color[(count<<1)+1] << 8;
-		}
-    	count++;
-    	bits += 16;
-    	if (count == len) {
-            WRITE_PERI_REG((SPI_W0_REG(unit) + (idx << 2)), wd);
-    		break;
-    	}
-		if (rep) wd |= wd << 16;
-		else {
-			wd |= (uint32_t)color[count<<1] << 16;
-			wd |= (uint32_t)color[(count<<1)+1] << 24;
-		}
-        WRITE_PERI_REG((SPI_W0_REG(unit) + (idx << 2)), wd);
-    	count++;
-    	bits += 16;
-    	idx++;
-    	if (idx == 16) {
-    	    spi_transfer_wd(unit, bits-1);
-    		bits = 0;
-    		idx = 0;
-    		// Wait for SPI bus ready
-    		if (count < len) {
-    			while (READ_PERI_REG(SPI_CMD_REG(unit))&SPI_USR);
-    		}
-    	}
-    }
-    if (bits > 0) spi_transfer_wd(unit, bits-1);
-
-}
+// ===========================================================================
+// !!IMPORTANT!! spi_device_select & spi_device_deselect must be used in pairs
+// ===========================================================================
 
 //Send a command to the TFT.
 //-----------------------------
 void tft_cmd(const uint8_t cmd)
 {
-    taskDISABLE_INTERRUPTS();
-	spi_select(DISP_SPI);
+	if (spi_device_select(disp_spi, 0)) return;
+    //taskDISABLE_INTERRUPTS();
 
-    spi_transfer_cmd(cmd);
+    disp_spi_transfer_cmd(disp_spi, cmd);
 
-    spi_deselect(DISP_SPI);
-
-	taskENABLE_INTERRUPTS();
+    spi_device_deselect(disp_spi);
+	//taskENABLE_INTERRUPTS();
 }
 
-//Send data to the TFT.
+//Send command data to the TFT.
 //-----------------------------------------
 void tft_data(const uint8_t *data, int len)
 {
     if (len==0) return;             //no need to send anything
 
-	taskDISABLE_INTERRUPTS();
-	spi_select(DISP_SPI);
+	if (spi_device_select(disp_spi, 0)) return;
+	//taskDISABLE_INTERRUPTS();
 
-    spi_transfer_data(DISP_SPI, (unsigned char *)data, NULL, len, 0);
+    spi_transfer_data(disp_spi, (unsigned char *)data, NULL, len, 0);
 
-    spi_deselect(DISP_SPI);
-
-	taskENABLE_INTERRUPTS();
+	spi_device_deselect(disp_spi);
+	//taskENABLE_INTERRUPTS();
 }
 
 // Draw pixel on TFT on x,y position using given color
 //---------------------------------------------------------------
 void drawPixel(int16_t x, int16_t y, uint16_t color, uint8_t sel)
 {
-	uint16_t x1=x, x2=x+1;
-	uint16_t y1=y, y2=y+1;
-
-	taskDISABLE_INTERRUPTS();
-	if (sel) spi_select(DISP_SPI);
-
-	// ** Send address window **
-	spi_transfer_addrwin((uint8_t *)&x1, (uint8_t *)&x2, (uint8_t *)&y1, (uint8_t *)&y2);
+	if (sel) {
+		if (spi_device_select(disp_spi, 0)) return;
+	}
+	//taskDISABLE_INTERRUPTS();
 
 	// ** Send pixel color **
-	spi_transfer_pixel((uint8_t *)&color);
+	disp_spi_set_pixel(disp_spi, x, y, color);
 
-	if (sel) spi_deselect(DISP_SPI);
-	taskENABLE_INTERRUPTS();
+	if (sel) spi_device_deselect(disp_spi);
+	//taskENABLE_INTERRUPTS();
 }
-
-#include <sys/delay.h>
 
 // Write 'len' 16-bit color data to TFT 'window' (x1,y2),(x2,y2)
 // uses the buffer to fill the color values
 //---------------------------------------------------------------------------------
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t color, uint32_t len)
 {
-	uint16_t xx1=x1, xx2=x2;
-	uint16_t yy1=y1, yy2=y2;
 	uint16_t ccolor = color;
-	vTaskSuspendAll ();
+	if (spi_device_select(disp_spi, 0)) return;
+	//vTaskSuspendAll ();
 
-	spi_select(DISP_SPI);
 	// ** Send address window **
-	spi_transfer_addrwin((uint8_t *)&xx1, (uint8_t *)&xx2, (uint8_t *)&yy1, (uint8_t *)&yy2);
+	disp_spi_transfer_addrwin(disp_spi, x1, x2, y1, y2);
 
 	// ** Send repeated pixel color **
-	spi_transfer_color_rep((uint8_t *)&ccolor, len, 1);
+	disp_spi_transfer_color_rep(disp_spi, (uint8_t *)&ccolor, len, 1);
 
-	spi_deselect(DISP_SPI);
-
-    xTaskResumeAll ();
+	spi_device_deselect(disp_spi);
+    //xTaskResumeAll ();
 }
 
 // Write 'len' 16-bit color data to TFT 'window' (x1,y2),(x2,y2) from given buffer
 //-------------------------------------------------------------------------
 void send_data(int x1, int y1, int x2, int y2, uint32_t len, uint16_t *buf)
 {
-	uint16_t xx1=x1, xx2=x2;
-	uint16_t yy1=y1, yy2=y2;
-	vTaskSuspendAll ();
-
-	spi_select(DISP_SPI);
+	if (spi_device_select(disp_spi, 0)) return;
+	//vTaskSuspendAll ();
 
 	// ** Send address window **
-	spi_transfer_addrwin((uint8_t *)&xx1, (uint8_t *)&xx2, (uint8_t *)&yy1, (uint8_t *)&yy2);
+	disp_spi_transfer_addrwin(disp_spi, x1, x2, y1, y2);
 
 	// ** Send pixel buffer **
-	spi_transfer_color_rep((uint8_t *)buf, len, 0);
+	disp_spi_transfer_color_rep(disp_spi, (uint8_t *)buf, len, 0);
 
-	spi_deselect(DISP_SPI);
-
-    xTaskResumeAll ();
+	spi_device_deselect(disp_spi);
+    //xTaskResumeAll ();
 }
 
 // Reads one pixel/color from the TFT's GRAM
 //--------------------------------------
 uint16_t readPixel(int16_t x, int16_t y)
 {
-	uint16_t x1=x, x2=x+1;
-	uint16_t y1=y, y2=y+1;
 	uint8_t inbuf[4] = {0};
 
-	taskDISABLE_INTERRUPTS();
-
-	spi_select(DISP_SPI);
+	if (spi_device_select(disp_spi, 0)) return 0;
+	//taskDISABLE_INTERRUPTS();
 
 	// ** Send address window **
-	spi_transfer_addrwin((uint8_t *)&x1, (uint8_t *)&x2, (uint8_t *)&y1, (uint8_t *)&y2);
+	disp_spi_transfer_addrwin(disp_spi, x, x+1, y, y+1);
 
     // ** GET pixel color **
-    spi_transfer_cmd(TFT_RAMRD);
-    spi_transfer_data(DISP_SPI, NULL, inbuf, 0, 4);
+	disp_spi_transfer_cmd(disp_spi, TFT_RAMRD);
 
-	spi_deselect(DISP_SPI);
+	spi_transfer_data(disp_spi, NULL, inbuf, 0, 4);
 
-    taskENABLE_INTERRUPTS();
+	spi_device_deselect(disp_spi);
+    //taskENABLE_INTERRUPTS();
 
-	printf("READ DATA: %02x, %02x, %02x, %02x\r\n", inbuf[0],inbuf[1],inbuf[2],inbuf[3]);
+	//printf("READ DATA: [%02x, %02x, %02x, %02x]\r\n", inbuf[0],inbuf[1],inbuf[2],inbuf[3]);
     return (uint16_t)((uint16_t)((inbuf[1] & 0xF8) << 8) | (uint16_t)((inbuf[2] & 0xFC) << 3) | (uint16_t)(inbuf[3] >> 3));
 }
 
 // Reads pixels/colors from the TFT's GRAM
 //-------------------------------------------------------------------
-void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
+int read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
 {
-	uint16_t xx1=x1, xx2=x2;
-	uint16_t yy1=y1, yy2=y2;
-
 	memset(buf, 0, len*2);
 
 	uint8_t *rbuf = malloc((len*3)+1);
-    if (!rbuf) return;
+    if (!rbuf) return -1;
 
     memset(rbuf, 0, (len*3)+1);
 
-	vTaskSuspendAll ();
-
-	spi_select(DISP_SPI);
+	if (spi_device_select(disp_spi, 0)) return -2;
+	//vTaskSuspendAll ();
 
     // ** Send address window **
-	spi_transfer_addrwin((uint8_t *)&xx1, (uint8_t *)&xx2, (uint8_t *)&yy1, (uint8_t *)&yy2);
+	disp_spi_transfer_addrwin(disp_spi, x1, x2, y1, y2);
 
     // ** GET pixels/colors **
-    spi_transfer_cmd(TFT_RAMRD);
-    spi_transfer_data(DISP_SPI, NULL, rbuf, 0, (len*3)+1);
+	disp_spi_transfer_cmd(disp_spi, TFT_RAMRD);
 
-	spi_deselect(DISP_SPI);
+	spi_transfer_data(disp_spi, NULL, rbuf, 0, (len*3)+1);
 
-    xTaskResumeAll ();
+	spi_device_deselect(disp_spi);
+    //xTaskResumeAll ();
 
     int idx = 0;
     uint16_t color;
@@ -390,80 +188,31 @@ void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf)
     	buf[idx++] = color & 0xFF;
     }
     free(rbuf);
+
+    return 0;
 }
 
 //-----------------------------------
 uint16_t touch_get_data(uint8_t type)
 {
-	uint8_t cmd = type;
-	uint8_t rxbuf[2] = {0};
+	uint8_t cmd[3] = {0};
+	uint8_t rxbuf[3] = {0x55};
 
-	taskDISABLE_INTERRUPTS();
-	spi_select(TOUCH_SPI);
+	cmd[0] = type;
 
-    spi_transfer_data(TOUCH_SPI, &cmd, rxbuf, 1, 2);
+	if (spi_device_select(ts_spi, 0)) return 0;
+	//taskDISABLE_INTERRUPTS();
 
-	spi_deselect(TOUCH_SPI);
+	spi_transfer_data(ts_spi, cmd, rxbuf, 3, 3);
 
-    taskENABLE_INTERRUPTS();
+	spi_device_deselect(ts_spi);
+    //taskENABLE_INTERRUPTS();
 
-    //if ((rxbuf[2] & 0x0F) == 0) tdata = (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
-
-    return (((uint16_t)(rxbuf[0] << 8) | (uint16_t)(rxbuf[1])) >> 4);
+	//printf("TOUCH: cmd=%02x, data: [%02x %02x %02x]\r\n", type, rxbuf[0], rxbuf[1], rxbuf[2]);
+    return (((uint16_t)(rxbuf[1] << 8) | (uint16_t)(rxbuf[2])) >> 4);
 }
-
-/*
-// fill 'tft_line' with specified color
-//---------------------------------------------
-void fill_tftline(uint16_t color, uint16_t len)
-{
-	if (!tft_line) return;
-	uint16_t n = len;
-	if (n > TFT_LINEBUF_MAX_SIZE) n = TFT_LINEBUF_MAX_SIZE;
-
-	for (uint16_t i=0;i<n;i++) {
-		tft_line[i] = color;
-	}
-}
-*/
 
 //======== Display initialization data =========================================
-
-static const ili_init_cmd_t ili_init_cmds[]={
-	#ifndef TFT_USE_RST
-	{0x01, {0}, 0},								//  Software reset
-	{0x00, {0}, 200},							//  delay 200 ms
-	#endif
-    {0xCF, {0x00, 0x83, 0X30}, 3},
-    {0xED, {0x64, 0x03, 0X12, 0X81}, 4},
-    {0xE8, {0x85, 0x01, 0x79}, 3},
-    {0xCB, {0x39, 0x2C, 0x00, 0x34, 0x02}, 5},
-    {0xF7, {0x20}, 1},
-    {0xEA, {0x00, 0x00}, 2},
-    {0xC0, {0x26}, 1},
-    {0xC1, {0x11}, 1},
-    {0xC5, {0x35, 0x3E}, 2},
-    {0xC7, {0xBE}, 1},
-    {0x36, {0x28}, 1},
-    {0x3A, {0x55}, 1},
-    {0xB1, {0x00, 0x1B}, 2},
-    {0xF2, {0x08}, 1},
-    {0x26, {0x01}, 1},
-    //{0xE0, {0x1F, 0x1A, 0x18, 0x0A, 0x0F, 0x06, 0x45, 0X87, 0x32, 0x0A, 0x07, 0x02, 0x07, 0x05, 0x00}, 15},
-    //{0XE1, {0x00, 0x25, 0x27, 0x05, 0x10, 0x09, 0x3A, 0x78, 0x4D, 0x05, 0x18, 0x0D, 0x38, 0x3A, 0x1F}, 15},
-	//Positive Gamma Correction
-	{ILI9341_GMCTRP1,		{0x0F, 0x31, 0x2B, 0x0C, 0x0E, 0x08, 0x4E, 0xF1, 0x37, 0x07, 0x10, 0x03, 0x0E, 0x09, 0x00}, 15},
-	//Negative Gamma Correction
-	{ILI9341_GMCTRN1,		{0x00, 0x0E, 0x14, 0x03, 0x11, 0x07, 0x31, 0xC1, 0x48, 0x08, 0x0F, 0x0C, 0x31, 0x36, 0x0F}, 15},
-	{0x2A, {0x00, 0x00, 0x00, 0xEF}, 4},
-    {0x2B, {0x00, 0x00, 0x01, 0x3f}, 4},
-    {0x2C, {0}, 0},
-    {0xB7, {0x07}, 1},
-    {0xB6, {0x0A, 0x82, 0x27, 0x00}, 4},
-    {0x11, {0}, 0x80},
-    {0x29, {0}, 0x80},
-    {0, {0}, 0xff},
-};
 
 // Initialization commands for 7735B screens
 // -----------------------------------------
@@ -663,7 +412,7 @@ static const uint8_t ILI9341_init[] = {
 
 //------------------------------------------------------
 // Companion code to the above tables.  Reads and issues
-// a series of LCD commands stored in PROGMEM byte array
+// a series of LCD commands stored in byte array
 //--------------------------------------------
 static void commandList(const uint8_t *addr) {
   uint8_t  numCommands, numArgs, cmd;
@@ -673,10 +422,12 @@ static void commandList(const uint8_t *addr) {
   while(numCommands--) {         // For each command...
     cmd = *addr++;               // save command
     numArgs  = *addr++;          //   Number of args to follow
-    ms       = numArgs & DELAY;  //   If hibit set, delay follows args
+    ms       = numArgs & DELAY;  //   If high bit set, delay follows args
     numArgs &= ~DELAY;           //   Mask out delay bit
+
     tft_cmd(cmd);
     tft_data(addr, numArgs);
+
     addr += numArgs;
 
     if(ms) {
@@ -736,46 +487,86 @@ static void ST7735_initR(uint8_t options) {
   //  tabcolor = options;
 }
 
-//-----------------------
-void tft_set_defaults() {
-    spi_pin_config(DISP_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_CS);
-    spi_init(DISP_SPI, 1);
-    gpio_pin_output(disp_dc);
-    spi_set_mode(DISP_SPI, 0);
-    spi_set_speed(DISP_SPI, 20000);
-    spi_set_duplex(DISP_SPI, 0);
+//---------------------------------------------------------------------------------------------------------------------
+void tft_spi_disp_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc) {
+	buscfg.miso_io_num=sdi;
+	buscfg.mosi_io_num=sdo;
+	buscfg.sclk_io_num=sck;
 
-    spi_pin_config(TOUCH_SPI, PIN_NUM_MISO, PIN_NUM_MOSI, PIN_NUM_CLK, PIN_NUM_TCS);
-    spi_init(TOUCH_SPI, 1);
-    spi_set_mode(TOUCH_SPI, 2);
-    spi_set_speed(TOUCH_SPI, 2500);
-    spi_set_duplex(TOUCH_SPI, 0);
+    disp_devcfg.clock_speed_hz = 10000000;					// Defoult Clock out at 10 MHz
+	disp_devcfg.mode = 0;									// SPI mode 0
+	disp_devcfg.spics_io_num = -1;							// use software CS pin
+	disp_devcfg.spics_ext_io_num = cs;						// CS pin
+	disp_devcfg.spidc_io_num = dc;							// DC pin
+	disp_devcfg.queue_size = 7;								// We want to be able to queue 7 transactions at a time
+	disp_devcfg.pre_cb = disp_spi_pre_transfer_callback;	// Specify pre-transfer callback to handle D/C line
 }
 
-//-----------------------------------------------------------------------------------------------------------------------------------
-void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc, unsigned char tcs) {
-    spi_pin_config(DISP_SPI, sdi, sdo, sck, cs);
-    disp_dc = dc;
-    gpio_pin_output(disp_dc);
-    spi_init(DISP_SPI, 1);
-    spi_set_mode(DISP_SPI, 0);
-    spi_set_speed(DISP_SPI, 20000);
-    spi_set_duplex(DISP_SPI, 0);
+//-----------------------------------------------------------------------------------------------------
+void tft_spi_touch_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char tcs) {
+	buscfg.miso_io_num=sdi;
+	buscfg.mosi_io_num=sdo;
+	buscfg.sclk_io_num=sck;
 
-    spi_pin_config(TOUCH_SPI, sdi, sdo, sck, tcs);
-    spi_init(TOUCH_SPI, 1);
-    spi_set_mode(TOUCH_SPI, 2);
-    spi_set_speed(TOUCH_SPI, 2500);
-    spi_set_duplex(TOUCH_SPI, 0);
+    ts_devcfg.clock_speed_hz = 2500000;	// Clock out at 2.5 MHz
+	ts_devcfg.mode = 0;					// SPI mode 0
+	ts_devcfg.spics_io_num = -1;		// CS pin not used
+	ts_devcfg.spics_ext_io_num = tcs;	// ext CS pin
+	ts_devcfg.spidc_io_num = -1;		// DC pin not used
+	ts_devcfg.queue_size = 2;			// We want to be able to queue 2 transactions at a time
+}
+
+//-----------------------
+void tft_set_defaults() {
+	buscfg.miso_io_num = PIN_NUM_MISO;
+	buscfg.mosi_io_num = PIN_NUM_MOSI;
+	buscfg.sclk_io_num = PIN_NUM_CLK;
+	buscfg.quadwp_io_num = -1;
+	buscfg.quadhd_io_num = -1;
+
+	disp_devcfg.clock_speed_hz = 10000000;					// Clock out at 10 MHz
+	disp_devcfg.mode = 0;									// SPI mode 0
+	disp_devcfg.spics_io_num = -1;							// use software CS pin
+	disp_devcfg.spics_ext_io_num = PIN_NUM_CS;				// CS pin
+	disp_devcfg.spidc_io_num = PIN_NUM_DC;
+	disp_devcfg.queue_size = 7;								// We want to be able to queue 7 transactions at a time
+	disp_devcfg.pre_cb = disp_spi_pre_transfer_callback;	// Specify pre-transfer callback to handle D/C line
+	disp_devcfg.flags = SPI_DEVICE_HALFDUPLEX;
+	disp_devcfg.selected = 0;
+
+	ts_devcfg.clock_speed_hz=2500000;			// Clock out at 2.5 MHz
+	ts_devcfg.mode = 0;							// SPI mode 0
+	ts_devcfg.spics_io_num = -1;				// use software CS pin
+	ts_devcfg.spics_ext_io_num = PIN_NUM_TCS;	// CS pin
+	ts_devcfg.spidc_io_num = -1;
+	ts_devcfg.queue_size = 2;					// We want to be able to queue 2 transactions at a time
+	ts_devcfg.selected = 0;
+	//ts_devcfg.flags = SPI_DEVICE_HALFDUPLEX;
 }
 
 // Init tft SPI interface
-//-----------------------------------------
-driver_error_t *tft_spi_init(uint8_t typ) {
+//-----------------------------------
+esp_err_t tft_spi_init(uint8_t typ) {
+	esp_err_t error;
 
-	spi_select(DISP_SPI);
+	driver_error_t *err = espi_init(VSPI_HOST, &disp_devcfg, &buscfg, &disp_spi);
+	if (err) {
+		free(err);
+		return -98;
+	}
+	if (typ == 3) {
+		driver_error_t *err = espi_init(VSPI_HOST, &ts_devcfg, &buscfg, &ts_spi);
+		if (err) {
+			free(err);
+			return -99;
+		}
+	}
 
-    int cmd=0;
+	// Test if display device can be selected & deselected
+	error = spi_device_select(disp_spi, 0);
+	if (error) return error;
+	error = spi_device_deselect(disp_spi);
+	if (error) return error;
 
 	#ifdef TFT_USE_BKLT
     gpio_set_direction(PIN_NUM_BCKL, GPIO_MODE_OUTPUT);
@@ -785,7 +576,7 @@ driver_error_t *tft_spi_init(uint8_t typ) {
     gpio_set_direction(PIN_NUM_RST, GPIO_MODE_OUTPUT);
 	#endif
 
-
+    // Initialize display
     if (typ == 0) {
     	ST7735_initB();
     }
@@ -805,40 +596,17 @@ driver_error_t *tft_spi_init(uint8_t typ) {
 		#endif
         commandList(ILI9341_init);
     }
-    else if (typ == 4) {
-		#ifndef TFT_SOFT_RESET
-		//Reset the display
-		TFT_RST0;
-		vTaskDelay(100 / portTICK_RATE_MS);
-		TFT_RST0;
-		vTaskDelay(100 / portTICK_RATE_MS);
-		#endif
-		//Send all the initialization commands
-		while (ili_init_cmds[cmd].databytes != 0xff) {
-			if (ili_init_cmds[cmd].cmd > 0) {
-				tft_cmd(ili_init_cmds[cmd].cmd);
-				tft_data(ili_init_cmds[cmd].data, ili_init_cmds[cmd].databytes&0x1F);
-				if (ili_init_cmds[cmd].databytes&0x80) {
-					vTaskDelay((ili_init_cmds[cmd].databytes&0x7f) / portTICK_RATE_MS);
-				}
-			}
-			else {
-				vTaskDelay(ili_init_cmds[cmd].databytes / portTICK_RATE_MS);
-			}
-			cmd++;
-		}
-    }
 
     ///Enable backlight
 	#ifdef TFT_USE_BKLT
     gpio_set_level(PIN_NUM_BCKL, 0);
 	#endif
 
-	spi_deselect(DISP_SPI);
+	spi_device_deselect(disp_spi);
 
 	if (!tft_line) tft_line = malloc(TFT_LINEBUF_MAX_SIZE*2);
 
-	return NULL;
+	return ESP_OK;
 }
 
 #endif

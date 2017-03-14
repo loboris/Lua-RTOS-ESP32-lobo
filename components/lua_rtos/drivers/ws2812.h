@@ -31,6 +31,8 @@
 #ifndef WS2812_DRIVER_H
 #define WS2812_DRIVER_H
 
+#if CONFIG_LUA_RTOS_LUA_USE_LED
+
 #include <stdint.h>
 #include <sys/driver.h>
 #include <drivers/cpu.h>
@@ -82,5 +84,7 @@ inline rgbVal makeRGBVal(uint8_t r, uint8_t g, uint8_t b)
 #endif
 
 driver_error_t *ws2812_setup_pin(int8_t pin);
+
+#endif
 
 #endif /* WS2812_DRIVER_H */

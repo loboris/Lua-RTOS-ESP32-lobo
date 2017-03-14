@@ -4,13 +4,13 @@
 
 #include <limits.h>
 
+#include <sys/dirent.h>
 #include <errno.h>
 #include <fcntl.h>
-#include "stdio.h"
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
-#include <sys/dirent.h>
 
 #include <sys/stat.h>
 #include <sys/syslog.h>
@@ -19,17 +19,40 @@
 #include <drivers/cpu.h>
 #include <sys/mount.h>
 #include "ff.h"
-#include "rom/rtc.h"
+#include "vfs/fat.h"
 
 extern const char *__progname;
-extern void spiffs_fs_stat(uint32_t *total, uint32_t *used);
-extern void mount_fatfs();
-extern void unmount_fatfs();
+extern uint32_t boot_count;
+extern uint8_t flash_unique_id[8];
 
 char lua_syslog_level = 0xff;
+FILE *lua_stdout_file = NULL;
 
 void luaC_fullgc (lua_State *L, int isemergency) ;
 int edit_main(int argc, char *argv[]);
+
+static int os_stdout(lua_State *L) {
+    int total = lua_gettop(L);
+    const char *path = NULL;
+
+    if (total == 1) {
+    	path = luaL_checkstring(L, 1);
+    }
+
+    if (path) {
+    	if (lua_stdout_file) {
+    		fclose(lua_stdout_file);
+    	}
+
+    	lua_stdout_file = fopen(path,"a+");
+    } else {
+    	if (lua_stdout_file) {
+    		fclose(lua_stdout_file);
+    		lua_stdout_file = NULL;
+    	}
+    }
+    return 0;
+}
 
 static int os_shell(lua_State *L) { 
     luaL_checktype(L, 1, LUA_TBOOLEAN);
@@ -83,7 +106,7 @@ static int os_set_sleep_calib(lua_State *L) {
 
 static int os_reset_reason(lua_State *L) {
 	char buf[64];
-	int reason = cpu_reset_reason(buf);
+	int reason = cpu_reset_reasons(buf);
 
 	lua_pushinteger(L, reason);
 	lua_pushstring(L, buf);
@@ -238,9 +261,224 @@ static int os_mkdir (lua_State *L) {
     return luaL_fileresult(L, mkdir(path, 0) == 0, path);
 }
 
-
 static int os_ls (lua_State *L) {
     const char *path = luaL_optstring(L, 1, NULL);
+    DIR *dir = NULL;
+    struct dirent *ent;
+    char type;
+    char size[9];
+    char cpath[255];
+    char tpath[255];
+    char tbuffer[80];
+    struct stat sb;
+    struct tm *tm_info;
+    char *lpath = NULL;
+    char *ppath = NULL;
+    int statok;
+    int on_fat = 0;
+
+    // If path is not present get the current directory as path
+    if (!path) {
+        if (!getcwd(cpath, 255)) {
+            return luaL_fileresult(L, 0, cpath);
+        }
+        path = cpath;
+    }
+
+    lpath = mount_resolve_to_logical(path);
+    ppath = mount_resolve_to_physical(lpath);
+
+    if (strstr(ppath, "/fat/") == ppath) on_fat = 1;
+
+    free(ppath);
+
+    // Open directory
+    dir = opendir(lpath);
+    if (!dir) {
+        return luaL_fileresult(L, 0, path);
+    }
+
+    // Read directory entries
+    while ((ent = readdir(dir)) != NULL) {
+    	sprintf(tpath, lpath);
+        strcat(tpath,"/");
+        strcat(tpath,ent->d_name);
+        tbuffer[0] = '\0';
+
+        // Get file stat
+        statok = stat(tpath, &sb);
+
+    	if (statok == 0) {
+			tm_info = localtime(&sb.st_mtime);
+			strftime(tbuffer, 80, "%c", tm_info);
+        }
+
+    	type = 'd';
+        if (ent->d_type == DT_REG) {
+            type = 'f';
+            if (statok) strcpy(size, "       ?");
+            else {
+                sprintf(size,"%8d", (int)sb.st_size);
+            }
+        //} else if (ent->d_type == DT_LNK) {
+        //    type = 'l';
+        //    sprintf(size,"%8d", ent->d_fsize);
+        } else {
+            strcpy(size, "       -");
+        }
+
+        printf("%c\t%s\t%s\t%s\n",
+            type,
+            size,
+            tbuffer,
+            ent->d_name
+        );
+    }
+
+    closedir(dir);
+
+    free(lpath);
+
+    return 0;
+}
+
+// ============================================================================
+#include <ctype.h>
+
+// fnmatch defines
+#define	FNM_NOMATCH	1	// Match failed.
+#define	FNM_NOESCAPE	0x01	// Disable backslash escaping.
+#define	FNM_PATHNAME	0x02	// Slash must be matched by slash.
+#define	FNM_PERIOD		0x04	// Period must be matched by period.
+#define	FNM_LEADING_DIR	0x08	// Ignore /<tail> after Imatch.
+#define	FNM_CASEFOLD	0x10	// Case insensitive search.
+#define FNM_PREFIX_DIRS	0x20	// Directory prefixes of pattern match too.
+#define	EOS	        '\0'
+
+//-----------------------------------------------------------------------
+static const char * rangematch(const char *pattern, char test, int flags)
+{
+  int negate, ok;
+  char c, c2;
+
+  /*
+   * A bracket expression starting with an unquoted circumflex
+   * character produces unspecified results (IEEE 1003.2-1992,
+   * 3.13.2).  This implementation treats it like '!', for
+   * consistency with the regular expression syntax.
+   * J.T. Conklin (conklin@ngai.kaleida.com)
+   */
+  if ( (negate = (*pattern == '!' || *pattern == '^')) ) ++pattern;
+
+  if (flags & FNM_CASEFOLD) test = tolower((unsigned char)test);
+
+  for (ok = 0; (c = *pattern++) != ']';) {
+    if (c == '\\' && !(flags & FNM_NOESCAPE)) c = *pattern++;
+    if (c == EOS) return (NULL);
+
+    if (flags & FNM_CASEFOLD) c = tolower((unsigned char)c);
+
+    if (*pattern == '-' && (c2 = *(pattern+1)) != EOS && c2 != ']') {
+      pattern += 2;
+      if (c2 == '\\' && !(flags & FNM_NOESCAPE)) c2 = *pattern++;
+      if (c2 == EOS) return (NULL);
+
+      if (flags & FNM_CASEFOLD) c2 = tolower((unsigned char)c2);
+
+      if ((unsigned char)c <= (unsigned char)test &&
+          (unsigned char)test <= (unsigned char)c2) ok = 1;
+    }
+    else if (c == test) ok = 1;
+  }
+  return (ok == negate ? NULL : pattern);
+}
+
+//--------------------------------------------------------------------
+static int fnmatch(const char *pattern, const char *string, int flags)
+{
+  const char *stringstart;
+  char c, test;
+
+  for (stringstart = string;;)
+    switch (c = *pattern++) {
+    case EOS:
+      if ((flags & FNM_LEADING_DIR) && *string == '/') return (0);
+      return (*string == EOS ? 0 : FNM_NOMATCH);
+    case '?':
+      if (*string == EOS) return (FNM_NOMATCH);
+      if (*string == '/' && (flags & FNM_PATHNAME)) return (FNM_NOMATCH);
+      if (*string == '.' && (flags & FNM_PERIOD) &&
+          (string == stringstart ||
+          ((flags & FNM_PATHNAME) && *(string - 1) == '/')))
+              return (FNM_NOMATCH);
+      ++string;
+      break;
+    case '*':
+      c = *pattern;
+      // Collapse multiple stars.
+      while (c == '*') c = *++pattern;
+
+      if (*string == '.' && (flags & FNM_PERIOD) &&
+          (string == stringstart ||
+          ((flags & FNM_PATHNAME) && *(string - 1) == '/')))
+              return (FNM_NOMATCH);
+
+      // Optimize for pattern with * at end or before /.
+      if (c == EOS)
+        if (flags & FNM_PATHNAME)
+          return ((flags & FNM_LEADING_DIR) ||
+                    strchr(string, '/') == NULL ?
+                    0 : FNM_NOMATCH);
+        else return (0);
+      else if ((c == '/') && (flags & FNM_PATHNAME)) {
+        if ((string = strchr(string, '/')) == NULL) return (FNM_NOMATCH);
+        break;
+      }
+
+      // General case, use recursion.
+      while ((test = *string) != EOS) {
+        if (!fnmatch(pattern, string, flags & ~FNM_PERIOD)) return (0);
+        if ((test == '/') && (flags & FNM_PATHNAME)) break;
+        ++string;
+      }
+      return (FNM_NOMATCH);
+    case '[':
+      if (*string == EOS) return (FNM_NOMATCH);
+      if ((*string == '/') && (flags & FNM_PATHNAME)) return (FNM_NOMATCH);
+      if ((pattern = rangematch(pattern, *string, flags)) == NULL) return (FNM_NOMATCH);
+      ++string;
+      break;
+    case '\\':
+      if (!(flags & FNM_NOESCAPE)) {
+        if ((c = *pattern++) == EOS) {
+          c = '\\';
+          --pattern;
+        }
+      }
+      break;
+      // FALLTHROUGH
+    default:
+      if (c == *string) {
+      }
+      else if ((flags & FNM_CASEFOLD) && (tolower((unsigned char)c) == tolower((unsigned char)*string))) {
+      }
+      else if ((flags & FNM_PREFIX_DIRS) && *string == EOS && ((c == '/' && string != stringstart) ||
+    		  (string == stringstart+1 && *stringstart == '/')))
+              return (0);
+      else return (FNM_NOMATCH);
+      string++;
+      break;
+    }
+  // NOTREACHED
+  return 0;
+}
+
+// ============================================================================
+
+static int os_list (lua_State *L) {
+    const char *path = luaL_optstring(L, 1, NULL);
+    const char *match = luaL_optstring(L, 2, NULL);
+
     DIR *dir = NULL;
     struct dirent *ent;
     char type;
@@ -287,38 +525,40 @@ static int os_ls (lua_State *L) {
         strcat(tpath,ent->d_name);
         tbuffer[0] = '\0';
 
-        // Get file stat
-        statok = stat(tpath, &sb);
+        if ((match == NULL) || (fnmatch(match, tpath, (FNM_PERIOD)) == 0)) {
+			// Get file stat
+			statok = stat(tpath, &sb);
 
-    	if (statok == 0) {
-			tm_info = localtime(&sb.st_mtime);
-			strftime(tbuffer, 80, "%d/%m/%Y %R", tm_info);
-        }
+			if (statok == 0) {
+				tm_info = localtime(&sb.st_mtime);
+				strftime(tbuffer, 80, "%d/%m/%Y %R", tm_info);
+			}
 
-    	type = 'd';
-        if (ent->d_type == DT_REG) {
-            type = 'f';
-            nfiles++;
-            if (statok) strcpy(size, "       ?");
-            else {
-            	total += sb.st_size;
-            	if (sb.st_size < (1024*1024)) sprintf(size,"%8d", (int)sb.st_size);
-            	else if ((sb.st_size/1024) < (1024*1024)) sprintf(size,"%6dKB", (int)(sb.st_size / 1024));
-            	else sprintf(size,"%6dMB", (int)(sb.st_size / (1024 * 1024)));
-            }
-        //} else if (ent->d_type == DT_LNK) {
-        //    type = 'l';
-        //    sprintf(size,"%8d", ent->d_fsize);
-        } else {
-            strcpy(size, "       -");
+			type = 'd';
+			if (ent->d_type == DT_REG) {
+				type = 'f';
+				nfiles++;
+				if (statok) strcpy(size, "       ?");
+				else {
+					total += sb.st_size;
+					if (sb.st_size < (1024*1024)) sprintf(size,"%8d", (int)sb.st_size);
+					else if ((sb.st_size/1024) < (1024*1024)) sprintf(size,"%6dKB", (int)(sb.st_size / 1024));
+					else sprintf(size,"%6dMB", (int)(sb.st_size / (1024 * 1024)));
+				}
+			//} else if (ent->d_type == DT_LNK) {
+			//    type = 'l';
+			//    sprintf(size,"%8d", ent->d_fsize);
+			} else {
+				strcpy(size, "       -");
+			}
+
+			printf("%c  %s  %s  %s\r\n",
+				type,
+				size,
+				tbuffer,
+				ent->d_name
+			);
         }
-        
-        printf("%c  %s  %s  %s\r\n",
-            type,
-            size,
-            tbuffer,
-            ent->d_name
-        );
     }
     if (total) {
         printf("-----------------------------------\r\n");
@@ -537,12 +777,6 @@ static int os_exists(lua_State *L) {
 	return 1;
 }
 
-static int os_bootcount(lua_State *L) {
-	lua_pushinteger(L, boot_count);
-
-	return 1;
-}
-
 static int os_mountfat(lua_State *L) {
 	mount_fatfs();
 	return 0;
@@ -660,3 +894,355 @@ static int os_run (lua_State *L) {
 #endif
     return 0;
 }
+
+static int os_bootcount(lua_State *L) {
+	lua_pushinteger(L, boot_count);
+
+	return 1;
+}
+
+static int os_flash_unique_id(lua_State *L) {
+	#if CONFIG_LUA_RTOS_READ_FLASH_UNIQUE_ID
+	char buffer[17];
+
+	sprintf(buffer,
+			"%02x%02x%02x%02x%02x%02x%02x%02x",
+			flash_unique_id[0], flash_unique_id[1],
+			flash_unique_id[2], flash_unique_id[3],
+			flash_unique_id[4], flash_unique_id[5],
+			flash_unique_id[6], flash_unique_id[7]
+	);
+
+    lua_pushstring(L, buffer);
+	#else
+    lua_pushnil(L);
+	#endif
+	return 1;
+}
+
+// ===== Lua compiler ===========================================
+
+#define PRINT_BYTECODE
+
+#include "lobject.h"
+#include "lstate.h"
+#include "lundump.h"
+
+#define toproto(L,i) getproto(L->top+(i))
+#define FUNCTION "(function()end)();"
+
+#ifdef PRINT_BYTECODE
+static void PrintFunction(const Proto* f, int full);
+#define luaU_print	PrintFunction
+#endif
+
+//------------------------------------------------------------------
+static int writer(lua_State* L, const void* p, size_t size, void* u)
+{
+ UNUSED(L);
+ return (fwrite(p,size,1,(FILE*)u)!=1) && (size!=0);
+}
+
+// os.compile(filename.lua [,stripping, print])
+//===================================
+static int os_compile( lua_State* L )
+{
+  int stripping = 1;      // strip debug information
+  int listing = 0;
+  char output[64];
+  size_t len;
+  const char *filename = luaL_checklstring( L, 1, &len );
+  const Proto* f;
+
+  if (lua_gettop(L) > 1) {
+	  stripping = luaL_checkinteger(L, 2);
+  }
+  if (lua_gettop(L) > 2) {
+	  listing = luaL_checkinteger(L, 3);
+  }
+  // check that filename end with ".lua".
+  if ((len < 5) || (strcmp( filename + len - 4, ".lua") != 0)) return luaL_error(L, "not a .lua file");
+
+  if (luaL_loadfile(L,filename) != LUA_OK) return luaL_error(L, "error loading source file");
+
+  f = toproto(L, -1);
+
+  #ifdef PRINT_BYTECODE
+  if (listing > 0) luaU_print(f, listing>1);
+  #endif
+
+  // make output file name
+  strcpy(output, filename);
+  output[strlen(output) - 2] = 'c';
+  output[strlen(output) - 1] = '\0';
+
+  // open output file
+  FILE* D = fopen(output,"wb");
+  if (D == NULL) return luaL_error(L, "error opening destination file");
+
+  lua_lock(L);
+  luaU_dump(L, f, writer, D, stripping);
+  lua_unlock(L);
+
+  if (ferror(D)) {
+	  if (fclose(D)) return luaL_error(L, "error closing destination file");
+	  return luaL_error(L, "error writing to destination file");
+  }
+  if (fclose(D)) return luaL_error(L, "error closing destination file");
+
+  return 0;
+}
+
+// --------------------------------------------------------------
+
+#ifdef PRINT_BYTECODE
+
+/*
+ * #####################################################################
+ * Produce a listing of the compiled bytecode for Lua's virtual machine.
+ * Listing bytecodes is useful to learn about Lua's virtual machine.
+ * #####################################################################
+ *
+ * $Id: luac.c,v 1.75 2015/03/12 01:58:27 lhf Exp $
+ * print bytecodes
+ * See Copyright Notice in lua.h
+*/
+
+#include <ctype.h>
+
+#define luac_c
+#define LUA_CORE
+
+#include "ldebug.h"
+#include "lopcodes.h"
+
+#define VOID(p)		((const void*)(p))
+
+static void PrintString(const TString* ts)
+{
+ const char* s=getstr(ts);
+ size_t i,n=tsslen(ts);
+ printf("%c",'"');
+ for (i=0; i<n; i++)
+ {
+  int c=(int)(unsigned char)s[i];
+  switch (c)
+  {
+   case '"':  printf("\\\""); break;
+   case '\\': printf("\\\\"); break;
+   case '\a': printf("\\a"); break;
+   case '\b': printf("\\b"); break;
+   case '\f': printf("\\f"); break;
+   case '\n': printf("\\n"); break;
+   case '\r': printf("\\r"); break;
+   case '\t': printf("\\t"); break;
+   case '\v': printf("\\v"); break;
+   default:	if (isprint(c))
+   			printf("%c",c);
+		else
+			printf("\\%03d",c);
+  }
+ }
+ printf("%c",'"');
+}
+
+static void PrintConstant(const Proto* f, int i)
+{
+ const TValue* o=&f->k[i];
+ switch (ttype(o))
+ {
+  case LUA_TNIL:
+	printf("nil");
+	break;
+  case LUA_TBOOLEAN:
+	printf(bvalue(o) ? "true" : "false");
+	break;
+  case LUA_TNUMFLT:
+	{
+	char buff[100];
+	sprintf(buff,LUA_NUMBER_FMT,fltvalue(o));
+	printf("%s",buff);
+	if (buff[strspn(buff,"-0123456789")]=='\0') printf(".0");
+	break;
+	}
+  case LUA_TNUMINT:
+	printf(LUA_INTEGER_FMT,ivalue(o));
+	break;
+  case LUA_TSHRSTR: case LUA_TLNGSTR:
+	PrintString(tsvalue(o));
+	break;
+  default:				/* cannot happen */
+	printf("? type=%d",ttype(o));
+	break;
+ }
+}
+
+#define UPVALNAME(x) ((f->upvalues[x].name) ? getstr(f->upvalues[x].name) : "-")
+#define MYK(x)		(-1-(x))
+
+static void PrintCode(const Proto* f)
+{
+ const Instruction* code=f->code;
+ int pc,n=f->sizecode;
+ for (pc=0; pc<n; pc++)
+ {
+  Instruction i=code[pc];
+  OpCode o=GET_OPCODE(i);
+  int a=GETARG_A(i);
+  int b=GETARG_B(i);
+  int c=GETARG_C(i);
+  int ax=GETARG_Ax(i);
+  int bx=GETARG_Bx(i);
+  int sbx=GETARG_sBx(i);
+  int line=getfuncline(f,pc);
+  printf("\t%d\t",pc+1);
+  if (line>0) printf("[%d]\t",line); else printf("[-]\t");
+  printf("%-9s\t",luaP_opnames[o]);
+  switch (getOpMode(o))
+  {
+   case iABC:
+    printf("%d",a);
+    if (getBMode(o)!=OpArgN) printf(" %d",ISK(b) ? (MYK(INDEXK(b))) : b);
+    if (getCMode(o)!=OpArgN) printf(" %d",ISK(c) ? (MYK(INDEXK(c))) : c);
+    break;
+   case iABx:
+    printf("%d",a);
+    if (getBMode(o)==OpArgK) printf(" %d",MYK(bx));
+    if (getBMode(o)==OpArgU) printf(" %d",bx);
+    break;
+   case iAsBx:
+    printf("%d %d",a,sbx);
+    break;
+   case iAx:
+    printf("%d",MYK(ax));
+    break;
+  }
+  switch (o)
+  {
+   case OP_LOADK:
+    printf("\t; "); PrintConstant(f,bx);
+    break;
+   case OP_GETUPVAL:
+   case OP_SETUPVAL:
+    printf("\t; %s",UPVALNAME(b));
+    break;
+   case OP_GETTABUP:
+    printf("\t; %s",UPVALNAME(b));
+    if (ISK(c)) { printf(" "); PrintConstant(f,INDEXK(c)); }
+    break;
+   case OP_SETTABUP:
+    printf("\t; %s",UPVALNAME(a));
+    if (ISK(b)) { printf(" "); PrintConstant(f,INDEXK(b)); }
+    if (ISK(c)) { printf(" "); PrintConstant(f,INDEXK(c)); }
+    break;
+   case OP_GETTABLE:
+   case OP_SELF:
+    if (ISK(c)) { printf("\t; "); PrintConstant(f,INDEXK(c)); }
+    break;
+   case OP_SETTABLE:
+   case OP_ADD:
+   case OP_SUB:
+   case OP_MUL:
+   case OP_POW:
+   case OP_DIV:
+   case OP_IDIV:
+   case OP_BAND:
+   case OP_BOR:
+   case OP_BXOR:
+   case OP_SHL:
+   case OP_SHR:
+   case OP_EQ:
+   case OP_LT:
+   case OP_LE:
+    if (ISK(b) || ISK(c))
+    {
+     printf("\t; ");
+     if (ISK(b)) PrintConstant(f,INDEXK(b)); else printf("-");
+     printf(" ");
+     if (ISK(c)) PrintConstant(f,INDEXK(c)); else printf("-");
+    }
+    break;
+   case OP_JMP:
+   case OP_FORLOOP:
+   case OP_FORPREP:
+   case OP_TFORLOOP:
+    printf("\t; to %d",sbx+pc+2);
+    break;
+   case OP_CLOSURE:
+    printf("\t; %p",VOID(f->p[bx]));
+    break;
+   case OP_SETLIST:
+    if (c==0) printf("\t; %d",(int)code[++pc]); else printf("\t; %d",c);
+    break;
+   case OP_EXTRAARG:
+    printf("\t; "); PrintConstant(f,ax);
+    break;
+   default:
+    break;
+  }
+  printf("\n");
+ }
+}
+
+#define SS(x)	((x==1)?"":"s")
+#define S(x)	(int)(x),SS(x)
+
+static void PrintHeader(const Proto* f)
+{
+ const char* s=f->source ? getstr(f->source) : "=?";
+ if (*s=='@' || *s=='=')
+  s++;
+ else if (*s==LUA_SIGNATURE[0])
+  s="(bstring)";
+ else
+  s="(string)";
+ printf("\n%s <%s:%d,%d> (%d instruction%s at %p)\n",
+ 	(f->linedefined==0)?"main":"function",s,
+	f->linedefined,f->lastlinedefined,
+	S(f->sizecode),VOID(f));
+ printf("%d%s param%s, %d slot%s, %d upvalue%s, ",
+	(int)(f->numparams),f->is_vararg?"+":"",SS(f->numparams),
+	S(f->maxstacksize),S(f->sizeupvalues));
+ printf("%d local%s, %d constant%s, %d function%s\n",
+	S(f->sizelocvars),S(f->sizek),S(f->sizep));
+}
+
+static void PrintDebug(const Proto* f)
+{
+ int i,n;
+ n=f->sizek;
+ printf("constants (%d) for %p:\n",n,VOID(f));
+ for (i=0; i<n; i++)
+ {
+  printf("\t%d\t",i+1);
+  PrintConstant(f,i);
+  printf("\n");
+ }
+ n=f->sizelocvars;
+ printf("locals (%d) for %p:\n",n,VOID(f));
+ for (i=0; i<n; i++)
+ {
+  printf("\t%d\t%s\t%d\t%d\n",
+  i,getstr(f->locvars[i].varname),f->locvars[i].startpc+1,f->locvars[i].endpc+1);
+ }
+ n=f->sizeupvalues;
+ printf("upvalues (%d) for %p:\n",n,VOID(f));
+ for (i=0; i<n; i++)
+ {
+  printf("\t%d\t%s\t%d\t%d\n",
+  i,UPVALNAME(i),f->upvalues[i].instack,f->upvalues[i].idx);
+ }
+}
+
+static void PrintFunction(const Proto* f, int full)
+{
+ int i,n=f->sizep;
+ PrintHeader(f);
+ PrintCode(f);
+ if (full) PrintDebug(f);
+ for (i=0; i<n; i++) PrintFunction(f->p[i],full);
+}
+
+#endif
+
+// ==============================================================

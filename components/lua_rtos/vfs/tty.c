@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, tty vfs operations
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -42,6 +42,8 @@
 
 #include <drivers/uart.h>
 
+extern FILE *lua_stdout_file;
+
 static int IRAM_ATTR vfs_tty_open(const char *path, int flags, int mode) {
 	int unit = 0;
 
@@ -77,6 +79,9 @@ static size_t IRAM_ATTR vfs_tty_write(int fd, const void *data, size_t size) {
         }
 #endif
         uart_write(unit, data_c[i]);
+        if (lua_stdout_file) {
+        	fwrite(&data_c[i], 1, 1, lua_stdout_file);
+        }
     }
 
 	uart_unlock(unit);

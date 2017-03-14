@@ -43,9 +43,6 @@
 #include <string.h>
 #include <sys/dirent.h>
 #include <sys/syslog.h>
-#include <sys/panic.h>
-#include <unistd.h>
-#include <sys/mount.h>
 
 #define PORT           80
 #define SERVER         "lua-rtos-http-server/1.0"
@@ -171,7 +168,6 @@ static void chunk(FILE *f, const char *fmt, ...) {
 	}
 }
 
-
 int process(FILE *f) {
     char buf[HTPP_BUFF_SIZE];
     char *method;
@@ -288,7 +284,6 @@ int process(FILE *f) {
 	chunk(f, "</BODY></HTML>", SERVER);
 
 	fprintf(f, "0\r\n\r\n");
-
     return 0;
 }
 
@@ -351,14 +346,14 @@ void http_start() {
 	pthread_attr_init(&attr);
 
 	// Set stack size
-    pthread_attr_setstacksize(&attr, PTHREAD_STACK_MIN); //LUA_TASK_STACK);
+    pthread_attr_setstacksize(&attr, CONFIG_LUA_RTOS_LUA_STACK_SIZE);
 
     // Set priority
-    sched.sched_priority = LUA_TASK_PRIORITY;
+    sched.sched_priority = CONFIG_LUA_RTOS_LUA_TASK_PRIORITY;
     pthread_attr_setschedparam(&attr, &sched);
 
     // Set CPU
-    cpu_set_t cpu_set = LUA_TASK_CPU;
+    cpu_set_t cpu_set = CONFIG_LUA_RTOS_LUA_TASK_CPU;
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpu_set);
 
     // Create thread

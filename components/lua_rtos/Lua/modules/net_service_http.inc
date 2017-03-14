@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, lua http module
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -38,7 +38,6 @@
 #include <drivers/net.h>
 #include "http/httpclient.h"
 #include "esp_system.h"
-
 
 extern void http_start();
 extern void http_stop();
@@ -395,7 +394,6 @@ static int lnet_post(lua_State* L) {
 static int lnet_postfile(lua_State* L) {
 	return _lnet_http_req(L, HTTP_REQ_POST, 2);
 }
-
 
 static const LUA_REG_TYPE http_map[] = {
     { LSTRKEY( "serverstart" ),	 LFUNCVAL( lhttp_start   ) },

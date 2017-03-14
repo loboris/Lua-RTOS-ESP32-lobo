@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, sensor wrapper
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -32,10 +32,14 @@
 
 #include <drivers/sensor.h>
 
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
+
 typedef struct {
 	sensor_instance_t *instance;
 	uint8_t adquired;
 } sensor_userdata;
+
+#endif
 
 #endif	/* LSENSOR_H */
 

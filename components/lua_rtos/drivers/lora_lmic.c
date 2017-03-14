@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, Lora WAN driver for LMIC
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -29,8 +29,8 @@
 
 #include "luartos.h"
 
-#if LUA_USE_LORA
-#if USE_LMIC
+#if CONFIG_LUA_RTOS_LUA_USE_LORA
+#if CONFIG_LUA_RTOS_USE_LMIC
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -72,6 +72,8 @@ DRIVER_REGISTER_ERROR(LORA, lora, InvalidArgument, "invalid argument", LORA_ERR_
 #define evLORA_JOIN_DENIED     	 ( 1 << 2 )
 #define evLORA_TX_COMPLETE    	 ( 1 << 3 )
 #define evLORA_ACK_NOT_RECEIVED  ( 1 << 4 )
+
+extern uint8_t flash_unique_id[8];
 
 // LMIC job for start LMIC stack
 static osjob_t initjob;
@@ -403,13 +405,21 @@ driver_error_t *lora_mac_set(const char command, const char *value) {
 			break;
 		
 		case LORA_MAC_SET_DEVEUI:
+			#if CONFIG_LUA_RTOS_READ_FLASH_UNIQUE_ID
+			mtx_unlock(&lora_mtx);
+			return driver_operation_error(LORA_DRIVER, LORA_ERR_INVALID_ARGUMENT, "in this board DevEui is assigned automatically");
+			#else
 			// DEVEUI must be in little-endian format
 			hex_string_to_val((char *)value, (char *)DEVEUI, 8, 1);
+			#endif
 			break;
 		
 		case LORA_MAC_SET_APPEUI:
+			#if CONFIG_LUA_RTOS_READ_FLASH_UNIQUE_ID
+			#else
 			// APPEUI must be in little-endian format
 			hex_string_to_val((char *)value, (char *)APPEUI, 8, 1);
+			#endif
 			break;
 		
 		case LORA_MAC_SET_NWKSKEY:
@@ -697,10 +707,21 @@ void _lora_init() {
 
     // LMIC need to mantain some information in RTC
     status_set(STATUS_NEED_RTC_SLOW_MEM);
+
+    // Get device EUI from flash id
+    //if (CONFIG_LUA_RTOS_READ_FLASH_UNIQUE_ID) {
+	#if CONFIG_LUA_RTOS_READ_FLASH_UNIQUE_ID
+    	int i = 0;
+
+    	for(i=0;i<8;i++) {
+    		DEVEUI[i] = flash_unique_id[7-i];
+    	}
+	#endif
+    //}
 }
 
-#endif
-
 DRIVER_REGISTER(LORA,lora, NULL,_lora_init,NULL);
+
+#endif
 
 #endif

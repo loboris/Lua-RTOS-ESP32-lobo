@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, WIFI driver
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -180,10 +180,8 @@ static driver_error_t *wifi_init(wifi_mode_t mode) {
 
 		esp_event_loop_init(event_handler, NULL);
 
-		#ifdef CONFIG_WIFI_ENABLED
 		wifi_init_config_t cfg = WIFI_INIT_CONFIG_DEFAULT();
 		if ((error = wifi_check_error(esp_wifi_init(&cfg)))) return error;
-		#endif
 		if ((error = wifi_check_error(esp_wifi_set_storage(WIFI_STORAGE_RAM)))) return error;
 		if ((error = wifi_check_error(esp_wifi_set_mode(mode)))) return error;
 
@@ -194,8 +192,10 @@ static driver_error_t *wifi_init(wifi_mode_t mode) {
 }
 
 static driver_error_t *wifi_deinit() {
+	// TO DO
+	// esp_wifi_dinit: This API can not be called yet and will be done in the future.
+	#if 0
 	driver_error_t *error;
-
 	if (status_get(STATUS_WIFI_INITED)) {
 		// Remove and stop wifi driver from system
 		if ((error = wifi_check_error(esp_wifi_deinit()))) return error;
@@ -205,6 +205,7 @@ static driver_error_t *wifi_deinit() {
 
 		status_clear(STATUS_WIFI_INITED);
 	}
+	#endif
 
 	return NULL;
 }
@@ -281,7 +282,7 @@ driver_error_t *wifi_setup(wifi_mode_t mode, char *ssid, char *password) {
 
 	    memset(&wifi_config, 0, sizeof(wifi_config_t));
 
-	    strncpy ((char *)wifi_config.sta.ssid, ssid, 32);
+	    strncpy((char *)wifi_config.sta.ssid, ssid, 32);
 	    strncpy((char *)wifi_config.sta.password, password, 64);
 
 	    // Set config

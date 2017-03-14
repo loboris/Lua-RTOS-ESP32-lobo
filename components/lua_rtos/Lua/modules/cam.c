@@ -17,7 +17,7 @@
 #include "auxmods.h"
 #include "error.h"
 
-#define LUA_USE_CAM 1
+#if CONFIG_LUA_RTOS_LUA_USE_CAM
 
 #define OV2640_CHIPID_HIGH  0x0A
 #define OV2640_CHIPID_LOW   0x0B
@@ -338,3 +338,5 @@ int luaopen_cam(lua_State* L) {
 }
 
 MODULE_REGISTER_MAPPED(CAM, cam, cam_map, luaopen_cam);
+
+#endif

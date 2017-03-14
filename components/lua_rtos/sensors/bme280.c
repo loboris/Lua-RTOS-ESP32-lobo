@@ -53,7 +53,8 @@
 
 #include "luartos.h"
 
-#if LUA_USE_BME280
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
+#if CONFIG_LUA_RTOS_LUA_USE_BME280
 
 #include "drivers/i2c.h"
 #include "sensors/bme280.h"
@@ -2605,5 +2606,5 @@ driver_error_t *bme280_set(sensor_instance_t *unit, const char *id, sensor_value
 	return NULL;
 }
 
-#endif /* LUA_USE_BME280 */
-
+#endif
+#endif

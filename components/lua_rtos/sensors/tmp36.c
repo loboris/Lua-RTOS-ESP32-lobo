@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, TMP36 sensor (temperature)
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -26,6 +26,10 @@
  * arising out of or in connection with the use or performance of
  * this software.
  */
+
+#include "luartos.h"
+
+#if CONFIG_LUA_RTOS_LUA_USE_SENSOR
 
 #include "tmp36.h"
 
@@ -60,7 +64,7 @@ driver_error_t *tmp36_acquire(sensor_instance_t *unit, sensor_value_t *values) {
 	double mvolts = 0;
 
 	// Read value
-	if ((error = adc_read(unit->setup.adc.channel, &raw, &mvolts))) {
+	if ((error = adc_read(unit->setup.adc.unit, unit->setup.adc.channel, &raw, &mvolts))) {
 		return error;
 	}
 
@@ -70,3 +74,5 @@ driver_error_t *tmp36_acquire(sensor_instance_t *unit, sensor_value_t *values) {
 
 	return NULL;
 }
+
+#endif

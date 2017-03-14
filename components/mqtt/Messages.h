@@ -17,6 +17,6 @@
 #if !defined(MESSAGES_H)
 #define MESSAGES_H
 
-char* Messages_get(int index, int log_level);
+char* Messages_get(int, int);
 
 #endif

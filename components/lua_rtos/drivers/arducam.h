@@ -63,10 +63,15 @@
 
 --------------------------------------*/
 
+#include "luartos.h"
+
+#if CONFIG_LUA_RTOS_LUA_USE_CAM
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include "drivers/espi.h"
 
 #define OV2640_CAM
 
@@ -210,7 +215,7 @@ uint8_t arducam_i2c_read(uint8_t regID, uint8_t* regDat);
 void arducam_delay_ms(uint32_t delay);
 
 // Spi device used for arducam
-#define ARDUCAM_SPI	NSPI*1+2  // on HSPI
+spi_device_handle_t ARDUCAM_SPI;
 
 // Default SPI pins
 #define PIN_NUM_MISO 12	// MISO
@@ -223,5 +228,7 @@ typedef struct {
 	int transaction;
 	int address;
 } i2c_arducam_data_t;
+
+#endif
 
 #endif /* SRC_ARDUCAM_H_ */

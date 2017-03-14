@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, pthread implementation over FreeRTOS
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -26,6 +26,8 @@
  * arising out of or in connection with the use or performance of
  * this software.
  */
+
+#include "esp_attr.h"
 
 #include <errno.h>
 #include <stdlib.h>
@@ -104,7 +106,7 @@ int pthread_mutex_init(pthread_mutex_t *mut, const pthread_mutexattr_t *attr) {
     return 0;    
 }
 
-int pthread_mutex_lock(pthread_mutex_t *mut) {
+int IRAM_ATTR pthread_mutex_lock(pthread_mutex_t *mut) {
     struct pthread_mutex *mutex;
     int res;
 
@@ -133,7 +135,7 @@ int pthread_mutex_lock(pthread_mutex_t *mut) {
     return 0;
 }
 
-int pthread_mutex_unlock(pthread_mutex_t *mut) {
+int IRAM_ATTR pthread_mutex_unlock(pthread_mutex_t *mut) {
     struct pthread_mutex *mutex;
     int res;
 

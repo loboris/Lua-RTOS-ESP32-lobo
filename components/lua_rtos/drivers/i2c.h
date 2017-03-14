@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, I2C driver
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -28,8 +28,6 @@
  */
 
 #include "luartos.h"
-
-#if USE_I2C
 
 #ifndef I2C_H
 #define I2C_H
@@ -82,5 +80,3 @@ driver_error_t *i2c_read(int unit, int *transaction, char *data, int len);
 driver_error_t *i2c_flush(int unit, int *transaction, int new_transaction);
 
 #endif /* I2C_H */
-
-#endif

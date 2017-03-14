@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, pthread implementation over FreeRTOS
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -53,9 +53,9 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
         initial_state = attr->initial_state;
         cpu = attr->cpuset;
     } else {
-        stacksize = PTHREAD_STACK_MIN;
+        stacksize = CONFIG_LUA_RTOS_LUA_THREAD_STACK_SIZE;
         initial_state = PTHREAD_INITIAL_STATE_RUN;
-        priority = TASK_PRIORITY;
+        priority = CONFIG_LUA_RTOS_LUA_TASK_PRIORITY;
 
         if (portNUM_PROCESSORS > 0) {
         	cpu = 0;

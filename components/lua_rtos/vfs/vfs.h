@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, vfs register functions
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -27,6 +27,7 @@
  * this software.
  */
 
+void vfs_fat_register();
 void vfs_net_register();
 void vfs_spiffs_register();
 void vfs_tty_register();

@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, FreeRTOS adds needed for Lua RTOS
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  * 
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -28,6 +28,8 @@
  */
 
 #include "luartos.h"
+
+#include "esp_attr.h"
 
 #include "lua.h"
 #include "freertos/FreeRTOS.h"
@@ -70,7 +72,7 @@ void uxSetThreadId(UBaseType_t id) {
 	}
 }
 
-UBaseType_t uxGetThreadId() {
+UBaseType_t IRAM_ATTR uxGetThreadId() {
 	lua_rtos_tcb_t *lua_rtos_tcb;
 	int threadid = 0;
 
@@ -120,7 +122,7 @@ uint32_t uxGetSignaled(TaskHandle_t h) {
 	return signaled;
 }
 
-void uxSetSignaled(TaskHandle_t h, int s) {
+void IRAM_ATTR uxSetSignaled(TaskHandle_t h, int s) {
 	lua_rtos_tcb_t *lua_rtos_tcb;
 
 	// Get Lua RTOS specific TCB parts for current task
@@ -143,6 +145,19 @@ uint8_t uxGetCoreID(TaskHandle_t h) {
 	return coreid;
 }
 
+int uxGetStack(TaskHandle_t h) {
+	lua_rtos_tcb_t *lua_rtos_tcb;
+	int stack = 0;
+
+	// Get Lua RTOS specific TCB parts for current task
+	if ((lua_rtos_tcb = pvTaskGetThreadLocalStoragePointer(h, THREAD_LOCAL_STORAGE_POINTER_ID))) {
+		// Get stack size from Lua RTOS specific TCB parts
+		stack = lua_rtos_tcb->stack;
+	}
+
+	return stack;
+}
+
 void uxSetCoreID(int core) {
 	lua_rtos_tcb_t *lua_rtos_tcb;
 
@@ -150,5 +165,15 @@ void uxSetCoreID(int core) {
 	if ((lua_rtos_tcb = pvTaskGetThreadLocalStoragePointer(NULL, THREAD_LOCAL_STORAGE_POINTER_ID))) {
 		// Store current signaled mask into Lua RTOS specific TCB parts
 		lua_rtos_tcb->coreid = core;
+	}
+}
+
+void uxSetStack(int stack) {
+	lua_rtos_tcb_t *lua_rtos_tcb;
+
+	// Get Lua RTOS specific TCB parts for current task
+	if ((lua_rtos_tcb = pvTaskGetThreadLocalStoragePointer(NULL, THREAD_LOCAL_STORAGE_POINTER_ID))) {
+		// Store stack size into Lua RTOS specific TCB parts
+		lua_rtos_tcb->stack = stack;
 	}
 }

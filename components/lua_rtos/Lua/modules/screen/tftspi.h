@@ -11,32 +11,28 @@
 
 #include "luartos.h"
 
-#ifdef LUA_USE_SCREEN
-#define LUA_USE_TFT 1
-#endif
+#if CONFIG_LUA_RTOS_LUA_USE_TFT
 
-#if LUA_USE_TFT
+//#ifndef LUA_USE_TFT
+//#define LUA_USE_TFT 1
+//#endif
 
 #include <string.h>
 #include "soc/gpio_struct.h"
 #include "driver/gpio.h"
-#include "drivers/spi.h"
+#include "drivers/espi.h"
 #include "sys/syslog.h"
 
 //#define TFT_USE_BKLT	1
 #define TFT_SOFT_RESET	1
 
-// Spi devices used for tft
-#define DISP_SPI	NSPI*1+3  // on VSPI
-#define TOUCH_SPI	NSPI*2+3  // on VSPI
-
 // Default SPI pins
-#define PIN_NUM_MISO 25	// MISO
+#define PIN_NUM_MISO 19	// MISO
 #define PIN_NUM_MOSI 23	// MOSI
-#define PIN_NUM_CLK  19	// CLK
-#define PIN_NUM_CS   22 // Display CS
-#define PIN_NUM_DC   21	// Display DC (data/command)
-#define PIN_NUM_TCS  18	// Touch CS
+#define PIN_NUM_CLK  18	// CLK
+#define PIN_NUM_CS    5 // Display CS
+#define PIN_NUM_DC   26	// Display DC (data/command)
+#define PIN_NUM_TCS  25	// Touch CS
 #ifdef TFT_USE_BKLT
 #define PIN_NUM_BCKL  5	// Back light controll
 #endif
@@ -61,17 +57,7 @@ typedef struct {
 } ili_init_cmd_t;
 
 
-typedef struct {
-    unsigned char	spi;
-    unsigned char	dc;
-    unsigned int	speed;
-    unsigned int	divisor;
-    unsigned int	mode;
-    unsigned int	bits;
-    spi_resources_t	resources;
-} tft_spi_config_t;
-
-
+// Display constants
 #define ST7735_WIDTH  128
 #define ST7735_HEIGHT 160
 #define ILI9341_WIDTH  240
@@ -180,6 +166,14 @@ typedef struct {
 #define ILI9341_PRC	0xF7
 #define ILI9341_3GAMMA_EN	0xF2
 
+#define MADCTL_MY  0x80
+#define MADCTL_MX  0x40
+#define MADCTL_MV  0x20
+#define MADCTL_ML  0x10
+#define MADCTL_RGB 0x00
+#define MADCTL_BGR 0x08
+#define MADCTL_MH  0x04
+
 
 // Color definitions
 #define TFT_BLACK       0x0000      /*   0,   0,   0 */
@@ -204,14 +198,6 @@ typedef struct {
 
 #define INVERT_ON		1
 #define INVERT_OFF		0
-
-#define MADCTL_MY  0x80
-#define MADCTL_MX  0x40
-#define MADCTL_MV  0x20
-#define MADCTL_ML  0x10
-#define MADCTL_RGB 0x00
-#define MADCTL_BGR 0x08
-#define MADCTL_MH  0x04
 
 #define PORTRAIT	0
 #define LANDSCAPE	1
@@ -242,17 +228,19 @@ uint16_t _width;
 uint16_t _height;
 uint16_t *tft_line;
 
-void tft_set_defaults();
-void tft_spi_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc, unsigned char tcs);
+spi_device_handle_t disp_spi;
 
-driver_error_t *tft_spi_init(uint8_t typ);
+void tft_set_defaults();
+void tft_spi_disp_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char cs, unsigned char dc);
+void tft_spi_touch_config(unsigned char sdi, unsigned char sdo, unsigned char sck, unsigned char tcs);
+esp_err_t tft_spi_init(uint8_t typ);
 
 void tft_cmd(const uint8_t cmd);
 void tft_data(const uint8_t *data, int len);
 void send_data(int x1, int y1, int x2, int y2, uint32_t len, uint16_t *buf);
 void drawPixel(int16_t x, int16_t y, uint16_t color, uint8_t sel);
 void TFT_pushColorRep(int x1, int y1, int x2, int y2, uint16_t data, uint32_t len);
-void read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
+int read_data(int x1, int y1, int x2, int y2, int len, uint8_t *buf);
 uint16_t readPixel(int16_t x, int16_t y);
 //void fill_tftline(uint16_t color, uint16_t len);
 

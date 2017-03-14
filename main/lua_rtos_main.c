@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, main start program
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -84,14 +84,14 @@ void app_main() {
 	pthread_attr_init(&attr);
 
 	// Set stack size
-    pthread_attr_setstacksize(&attr, LUA_TASK_STACK);
+    pthread_attr_setstacksize(&attr, CONFIG_LUA_RTOS_LUA_STACK_SIZE);
 
     // Set priority
-    sched.sched_priority = LUA_TASK_PRIORITY;
+    sched.sched_priority = CONFIG_LUA_RTOS_LUA_TASK_PRIORITY;
     pthread_attr_setschedparam(&attr, &sched);
 
     // Set CPU
-    cpu_set_t cpu_set = LUA_TASK_CPU;
+    cpu_set_t cpu_set = CONFIG_LUA_RTOS_LUA_TASK_CPU;
     pthread_attr_setaffinity_np(&attr, sizeof(cpu_set_t), &cpu_set);
 
     // Create thread

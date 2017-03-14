@@ -2,7 +2,7 @@
 
 #include "luartos.h"
 
-#if LUA_USE_LED
+#if CONFIG_LUA_RTOS_LUA_USE_LED
 
 #include "lualib.h"
 #include "lauxlib.h"

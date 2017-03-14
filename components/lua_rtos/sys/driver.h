@@ -1,7 +1,7 @@
 /*
  * Lua RTOS, driver basics
  *
- * Copyright (C) 2015 - 2016
+ * Copyright (C) 2015 - 2017
  * IBEROXARXA SERVICIOS INTEGRALES, S.L. & CSS IBÉRICA, S.L.
  *
  * Author: Jaume Olivé (jolive@iberoxarxa.com / jolive@whitecatboard.org)
@@ -38,21 +38,27 @@
 #include <sys/resource.h>
 #include <sys/driver.h>
 
-#define ADC_DRIVER_ID    1
-#define GPIO_DRIVER_ID   2
-#define I2C_DRIVER_ID    3
-#define UART_DRIVER_ID   4
-#define SPI_DRIVER_ID    5
-#define LORA_DRIVER_ID   6
-#define PWM_DRIVER_ID    7
-#define WIFI_DRIVER_ID   8
-#define NET_DRIVER_ID    9
-#define SENSOR_DRIVER_ID 10
-#define OWIRE_DRIVER_ID  11
-#define MQTT_DRIVER_ID   12
-#define SERVO_DRIVER_ID  13
-#define WS2812_DRIVER_ID 14
-#define RMT_DRIVER_ID    15
+#define ADC_DRIVER_ID       1
+#define GPIO_DRIVER_ID      2
+#define I2C_DRIVER_ID       3
+#define UART_DRIVER_ID      4
+#define SPI_DRIVER_ID       5
+#define LORA_DRIVER_ID      6
+#define PWM_DRIVER_ID       7
+#define WIFI_DRIVER_ID      8
+#define NET_DRIVER_ID       9
+#define SENSOR_DRIVER_ID   10
+#define OWIRE_DRIVER_ID    11
+#define MQTT_DRIVER_ID     12
+#define SERVO_DRIVER_ID    13
+#define ESPI_DRIVER_ID     14
+#define THREAD_DRIVER_ID   15
+#define PWBUS_DRIVER_ID    16
+#define NZR_DRIVER_ID      17
+#define NEOPIXEL_DRIVER_ID 18
+#define WS2812_DRIVER_ID   19
+#define RMT_DRIVER_ID      20
+#define SDCRD_DRIVER_ID    21
 
 #define GPIO_DRIVER driver_get_by_name("gpio")
 #define UART_DRIVER driver_get_by_name("uart")
@@ -63,8 +69,12 @@
 #define MQTT_DRIVER driver_get_by_name("mqtt")
 #define OWIRE_DRIVER driver_get_by_name("owire")
 #define SERVO_DRIVER driver_get_by_name("servo")
+#define ESPI_DRIVER driver_get_by_name("espi")
+#define NZR_DRIVER driver_get_by_name("nzr")
+#define NEOPIXEL_DRIVER driver_get_by_name("neopixel")
 #define WS2812_DRIVER driver_get_by_name("ws2812")
 #define RMT_DRIVER driver_get_by_name("rmt")
+#define SDCRD_DRIVER driver_get_by_name("sdcrd")
 
 #define DRIVER_EXCEPTION_BASE(n) (n << 24)
 
@@ -145,10 +155,9 @@ void _driver_init();
 
 #define DRIVER_REGISTER(name,lname,locka,initf,lockf) \
 	const DRIVER_SECTION(DRIVER_TOSTRING(.drivers)) driver_t DRIVER_CONCAT(driver_,lname) = {DRIVER_TOSTRING(lname),  DRIVER_EXCEPTION_BASE(DRIVER_CONCAT(name,_DRIVER_ID)),  (void *)DRIVER_CONCAT(lname,_errors), locka, initf, lockf};
+#endif
 
 #define DRIVER_REGISTER_ERROR(name, lname, key, msg, exception) \
 	extern const driver_message_t DRIVER_CONCAT(lname,_errors)[]; \
 	const __attribute__((used,unused,section(DRIVER_TOSTRING(DRIVER_CONCAT(.lname,_errors))))) driver_message_t DRIVER_CONCAT(lname,DRIVER_CONCAT(key,_errors)) = {exception, msg}; \
 	const __attribute__((used,unused,section(DRIVER_TOSTRING(DRIVER_CONCAT(.lname,_error_map))))) LUA_REG_TYPE DRIVER_CONCAT(lname,DRIVER_CONCAT(key,_error_map)) = {LSTRKEY(DRIVER_TOSTRING(key)), LINTVAL(exception)};
-
-#endif
