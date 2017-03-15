@@ -56,9 +56,10 @@
 #define PWBUS_DRIVER_ID    16
 #define NZR_DRIVER_ID      17
 #define NEOPIXEL_DRIVER_ID 18
-#define WS2812_DRIVER_ID   19
-#define RMT_DRIVER_ID      20
-#define SDCRD_DRIVER_ID    21
+#define STEPPER_DRIVER_ID  19
+#define WS2812_DRIVER_ID   20
+#define RMT_DRIVER_ID      21
+#define SDCRD_DRIVER_ID    22
 
 #define GPIO_DRIVER driver_get_by_name("gpio")
 #define UART_DRIVER driver_get_by_name("uart")
@@ -72,6 +73,7 @@
 #define ESPI_DRIVER driver_get_by_name("espi")
 #define NZR_DRIVER driver_get_by_name("nzr")
 #define NEOPIXEL_DRIVER driver_get_by_name("neopixel")
+#define STEPPER_DRIVER driver_get_by_name("stepper")
 #define WS2812_DRIVER driver_get_by_name("ws2812")
 #define RMT_DRIVER driver_get_by_name("rmt")
 #define SDCRD_DRIVER driver_get_by_name("sdcrd")

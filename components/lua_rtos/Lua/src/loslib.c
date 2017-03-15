@@ -399,6 +399,7 @@ static int os_exit (lua_State *L) {
 
 
 #include "modules.h"
+#include "sys/syslog.h"
 
 static const LUA_REG_TYPE syslib[] =
 {
@@ -437,9 +438,10 @@ static const LUA_REG_TYPE syslib[] =
   { LSTRKEY( "run" ),        LFUNCVAL( os_run ) },
   { LSTRKEY( "luarunning" ), LFUNCVAL( os_lua_running ) },
   { LSTRKEY( "luainterpreter" ), LFUNCVAL( os_lua_interpreter ) },
-  { LSTRKEY( "resetreason" ), LFUNCVAL( os_reset_reason ) },
-  { LSTRKEY( "bootcount" ),  LFUNCVAL( os_bootcount ) },
-  { LSTRKEY( "flashEUI" ),  LFUNCVAL( os_flash_unique_id ) },
+  { LSTRKEY( "resetreason" ),    LFUNCVAL( os_reset_reason ) },
+  { LSTRKEY( "bootcount" ),      LFUNCVAL( os_bootcount ) },
+  { LSTRKEY( "flashEUI" ),       LFUNCVAL( os_flash_unique_id ) },
+  { LSTRKEY( "checkstack" ),     LFUNCVAL( os_checkstack ) },
 
   { LSTRKEY( "exists" ),  	 LFUNCVAL( os_exists ) },
   { LSTRKEY( "mountfat" ),   LFUNCVAL( os_mountfat ) },

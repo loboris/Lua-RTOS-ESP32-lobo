@@ -43,6 +43,17 @@ extern "C"
 #endif
 
 
+#define ESPI_MAX_USER_TRANS  8
+
+// SPI errors
+#define ESPI_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  0)
+#define ESPI_ERR_INVALID_MODE             (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  1)
+#define ESPI_ERR_INVALID_UNIT             (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  2)
+#define ESPI_ERR_SLAVE_NOT_ALLOWED        (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  3)
+#define ESPI_ERR_CANT_DEINIT_DEVICE       (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  4)
+#define ESPI_ERR_CANT_DEINIT_BUS          (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  5)
+#define ESPI_ERR_NO_FREE_TRANS            (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  6)
+
 
 /**
  * @brief Enum with the three SPI peripherals that are software-accessible in it
@@ -135,12 +146,16 @@ struct spi_transaction_t {
 typedef struct spi_device_t* spi_device_handle_t;  ///< Handle for a device on a SPI bus
 
 typedef struct {
-	spi_host_device_t bus;
-	spi_device_handle_t spi;
-	spi_device_interface_config_t devcfg;
-	spi_bus_config_t buscfg;
-	uint8_t data_bits;
-	uint8_t duplex;
+	spi_host_device_t bus;							// spi bus used
+	spi_device_handle_t spi;						// spi device pointer
+	spi_device_interface_config_t devcfg;			// spi device configuration data
+	spi_bus_config_t buscfg;						// spi bus configuration data
+	spi_transaction_t trans[ESPI_MAX_USER_TRANS];	// transactions array
+	uint8_t trans_idx;								// next transaction index; number of used transactions
+	uint8_t data_bits;								// number of data bits used for transfer
+	uint8_t duplex;									// duplex mode flag
+	uint8_t selected;								// selected from Lua flag
+	uint8_t queued;									// use queued/DMA transaction flag
 } espi_userdata;
 
 
@@ -291,6 +306,8 @@ void spi_device_GiveSemaphore(spi_device_handle_t handle);
 void spi_transfer_data(spi_device_handle_t handle, uint8_t *data, uint8_t *indata, uint32_t wrlen, uint32_t rdlen);
 
 driver_error_t *espi_init(spi_host_device_t host, spi_device_interface_config_t *dev_config, spi_bus_config_t *bus_config, spi_device_handle_t *handle);
+driver_error_t *espi_deinit(spi_host_device_t host, spi_device_handle_t *handle);
+
 
 // ==== Display specific functions ==============
 

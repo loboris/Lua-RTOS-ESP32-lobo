@@ -91,17 +91,14 @@ typedef struct spi_device_t spi_device_t;
 #define NO_DEV 6				// Number of spi devices per SPI host
 #define SPI_SEMAPHORE_WAIT 2000 // Time in ms to wait for semaphore
 
-// SPI errors
-#define ESPI_ERR_CANT_INIT                (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  0)
-#define ESPI_ERR_INVALID_MODE             (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  1)
-#define ESPI_ERR_INVALID_UNIT             (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  2)
-#define ESPI_ERR_SLAVE_NOT_ALLOWED        (DRIVER_EXCEPTION_BASE(ESPI_DRIVER_ID) |  3)
-
 // Driver message errors
 DRIVER_REGISTER_ERROR(ESPI, espi, CannotSetup, "can't setup",  ESPI_ERR_CANT_INIT);
 DRIVER_REGISTER_ERROR(ESPI, espi, InvalidMode, "invalid mode", ESPI_ERR_INVALID_MODE);
 DRIVER_REGISTER_ERROR(ESPI, espi, InvalidUnit, "invalid unit", ESPI_ERR_INVALID_UNIT);
 DRIVER_REGISTER_ERROR(ESPI, espi, SlaveNotAllowed, "slave mode not allowed", ESPI_ERR_SLAVE_NOT_ALLOWED);
+DRIVER_REGISTER_ERROR(ESPI, espi, CannotDeinitDevice, "Device cannot be deinitialized", ESPI_ERR_CANT_DEINIT_DEVICE);
+DRIVER_REGISTER_ERROR(ESPI, espi, CannotDeinitBus, "SPI Bus cannot be deinitialized", ESPI_ERR_CANT_DEINIT_BUS);
+DRIVER_REGISTER_ERROR(ESPI, espi, NoFreeTrans, "No free transaction buffers", ESPI_ERR_NO_FREE_TRANS);
 
 typedef struct {
     spi_device_t *device[NO_DEV];
@@ -1156,6 +1153,28 @@ driver_error_t *espi_init(spi_host_device_t host, spi_device_interface_config_t 
 	}
 
     *handle = hndl;
+    return NULL;
+}
+
+//--------------------------------------------------------------------------------
+driver_error_t *espi_deinit(spi_host_device_t host, spi_device_handle_t *handle) {
+	esp_err_t err;
+
+	if (spihost[host] == NULL) return NULL;
+
+	// UNLock resources used by spi bus&device
+	//TODO: how to unlock
+
+	//Remove SPI device from the SPI bus
+    err = spi_bus_remove_device(handle);
+	if (err) {
+		return driver_operation_error(ESPI_DRIVER, ESPI_ERR_CANT_DEINIT_DEVICE, NULL);
+    }
+
+	err = spi_bus_free(host, 1);
+	if (err) {
+		return driver_operation_error(ESPI_DRIVER, ESPI_ERR_CANT_DEINIT_BUS, NULL);
+	}
     return NULL;
 }
 

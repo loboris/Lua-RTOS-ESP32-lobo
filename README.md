@@ -1,4 +1,5 @@
 ---
+
 [Clone of the Whitecat's Lua-RTOS-ESP32 repository] (https://github.com/whitecatboard/Lua-RTOS-ESP32)
 
 ---
@@ -44,7 +45,7 @@
   * os.resetreason() returns reset reason as numeric and string (descriptive) values
   * added **os.list()** function (enhanced os.ls()): lists file timestamps (sfpiffs&fat), free and total drive space, number of files in directory, match files by wildchard
   * added os.mountfat() & os.unmountfat() functions
-  * added os.compile() function to compile lua source file to lua bytecode. Can also list the bytecode, usefull for learning how Lua virtual machine works
+  * added os.compile() function to compile lua source file to lua bytecode. Can also list the bytecode, useful for learning how Lua virtual machine works
 
 * i2c
   * added high level functions: send, receive, sendreceive

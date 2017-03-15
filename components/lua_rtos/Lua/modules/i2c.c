@@ -225,7 +225,7 @@ static int i2c_send(lua_State* L, uint8_t *buf, int top, uint8_t pass)
 
 /*
  * Send data to i2c device
- * Returns number of data sent
+ * Returns number of data bytes sent
  * numsent = i2cinstance:send(addr, data1, [data2], ..., [datan] )
  * data can be either a string, a table or an 8-bit number
  */
@@ -280,7 +280,7 @@ static int li2c_send(lua_State* L) {
 
 
 /*
- * Send data to i2c device
+ * Receive data from i2c device
  * Returns table, string or string of hexadecimal values
  * rstring = i2cinstance:receive(addr, size)
  * rhexstr = i2cinstance:receive(addr, size, "*h")
@@ -360,7 +360,6 @@ static int li2c_receive(lua_State* L)
 
 /*
  * Send data to i2c device and receive data in one transaction
- * Returns number of data sent
  * outdata can be either a string, a table or an 8-bit number
  * Returns table, string or string of hexadecimal values
  * rstring = i2cinstance:sendreceive(addr, outdata1, [outdata2], ..., [outdatan], read_size)
@@ -383,7 +382,7 @@ static int li2c_sendreceive(lua_State* L)
     int out_type = 0;
     int top = lua_gettop(L);
     if (top < 4) {
-    	luaL_error(L, "invalid number of arguments");
+    	return luaL_error(L, "invalid number of arguments");
     }
 
     // check last parameter
@@ -393,7 +392,7 @@ static int li2c_sendreceive(lua_State* L)
     }
     else if (lua_type(L, -1) == LUA_TSTRING) {
         if (top < 5) {
-        	luaL_error(L, "invalid number of arguments");
+        	return luaL_error(L, "invalid number of arguments");
         }
 
         if (lua_type(L, -2) == LUA_TNUMBER) {
@@ -409,11 +408,11 @@ static int li2c_sendreceive(lua_State* L)
             top -= 2;
         }
         else {
-        	luaL_error(L, "size argument not found");
+        	return luaL_error(L, "size argument not found");
         }
     }
     else {
-    	luaL_error(L, "size argument not found");
+    	return luaL_error(L, "size argument not found");
     }
 
     int i;

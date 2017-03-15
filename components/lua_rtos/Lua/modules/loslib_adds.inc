@@ -21,6 +21,8 @@
 #include "ff.h"
 #include "vfs/fat.h"
 
+#include "lua.h"
+
 extern const char *__progname;
 extern uint32_t boot_count;
 extern uint8_t flash_unique_id[8];
@@ -918,6 +920,15 @@ static int os_flash_unique_id(lua_State *L) {
     lua_pushnil(L);
 	#endif
 	return 1;
+}
+
+static int os_checkstack(lua_State *L) {
+	UBaseType_t stck = uxTaskGetStackHighWaterMark(NULL);
+
+	lua_pushinteger(L, CONFIG_LUA_RTOS_LUA_STACK_SIZE - stck);
+	lua_pushinteger(L, CONFIG_LUA_RTOS_LUA_STACK_SIZE);
+
+	return 2;
 }
 
 // ===== Lua compiler ===========================================
