@@ -1,6 +1,6 @@
 ---
 
-[Clone of the Whitecat's Lua-RTOS-ESP32 repository] (https://github.com/whitecatboard/Lua-RTOS-ESP32)
+[Clone of the Whitecat's Lua-RTOS-ESP32 repository](https://github.com/whitecatboard/Lua-RTOS-ESP32)
 
 ---
 
@@ -119,7 +119,7 @@ The Lua RTOS compatible boards can be programmed in two ways: using the Lua prog
 
 ![](http://whitecatboard.org/wp-content/uploads/2016/11/code-example.png)
 
-In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have more information about this.
+In our [wiki](https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have more information about this.
 
 # How to get Lua RTOS firmware?
 
@@ -141,10 +141,10 @@ In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have mo
 
    | Board              |
    |--------------------|
-   | [WHITECAT ESP32 N1] (http://whitecatboard.org/firmware.php?board=WHITECAT-ESP32-N1)  | 
-   | [ESP32 CORE] (http://whitecatboard.org/firmware.php?board=ESP32-CORE-BOARD)  | 
-   | [ESP32 THING] (http://whitecatboard.org/firmware.php?board=ESP32-THING)  | 
-   | [GENERIC] (http://whitecatboard.org/firmware.php?board=GENERIC)  | 
+   | [WHITECAT ESP32 N1](http://whitecatboard.org/firmware.php?board=WHITECAT-ESP32-N1)  | 
+   | [ESP32 CORE](http://whitecatboard.org/firmware.php?board=ESP32-CORE-BOARD)  | 
+   | [ESP32 THING](http://whitecatboard.org/firmware.php?board=ESP32-THING)  | 
+   | [GENERIC](http://whitecatboard.org/firmware.php?board=GENERIC)  | 
 
 2. Uncompress to your favorite folder:
 
@@ -155,9 +155,9 @@ In our [wiki] (https://github.com/whitecatboard/Lua-RTOS-ESP32/wiki) you have mo
 ## Method 2: build by yourself
 
 1. Install ESP32 toolchain for your desktop platform. Please, follow the instructions provided by ESPRESSIF:
-   * [Windows] (https://github.com/espressif/esp-idf/blob/master/docs/windows-setup.rst)
-   * [Mac OS] (https://github.com/espressif/esp-idf/blob/master/docs/macos-setup.rst)
-   * [Linux] (https://github.com/espressif/esp-idf/blob/master/docs/linux-setup.rst)
+   * [Windows](https://github.com/espressif/esp-idf/blob/master/docs/windows-setup.rst)
+   * [Mac OS](https://github.com/espressif/esp-idf/blob/master/docs/macos-setup.rst)
+   * [Linux](https://github.com/espressif/esp-idf/blob/master/docs/linux-setup.rst)
 
 1. Clone esp-idf repository from ESPRESSIF:
 
@@ -237,24 +237,39 @@ You can connect to the Lua RTOS console using your favorite terminal emulator pr
    ```
    
    ```lua
-      /\       /\
-     /  \_____/  \
+   --------------------
+   Booting Lua RTOS...
+
+    Boot reason: Deep Sleep reset digital core
+     Boot count: 1
+     Sleep time: 10 sec
+           From: Tue Mar 14 19:28:16 2017
+             To: Tue Mar 14 19:28:26 2017
+
+     /\       /\
+    /  \_____/  \
    /_____________\
    W H I T E C A T
 
-   Lua RTOS beta 0.1 build 1479953238 Copyright (C) 2015 - 2017 whitecatboard.org
-   cpu ESP32 at 240 Mhz
-   spiffs0 start address at 0x180000, size 512 Kb
+   Lua RTOS LoBo 0.2 build 1489519645 Copyright (C) 2015 - 2017 whitecatboard.org
+   board type ESP32 THING
+   cpu ESP32 rev 0 at 240 Mhz
+   flash EUI d665503346133812
+   spiffs0 start address at 0x180000, size 1024 Kb
    spiffs0 mounted
-   spi2 at pins sdi=012/sdo=013/sck=014/cs=015
-   sd0 is at spi2, pin cs=015
-   sd0 type II, size 1943552 kbytes, speed 15 Mhz
-   sd0a partition type 0b, sector 227, size 1943438 kbytes
-   fat init file system
-   fat0 mounted
+   Mounting SD Card: OK
+   --------------------
+    Mode: SPI (1bit)
+    Name: NCard
+    Type: SDHC/SDXC
+   Speed: default speed (25 MHz)
+    Size: 15079 MB
+     CSD: ver=1, sector_size=512, capacity=30881792 read_bl_len=9
+     SCR: sd_spec=2, bus_width=5
+
    redirecting console messages to file system ...
 
-   Lua RTOS beta 0.1 powered by Lua 5.3.4
+   Lua RTOS LoBo 0.2 powered by Lua 5.3.4
 
    Executing /system.lua ...
    Executing /autorun.lua ...

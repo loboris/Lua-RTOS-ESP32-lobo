@@ -137,7 +137,7 @@ void _sys_init() {
 	vfs_tty_register();
 
 	printf("\r\n--------------------\r\n");
-	printf("nBooting Lua RTOS...\r\n");
+	printf("Booting Lua RTOS...\r\n");
 	delay(100);
 
 	//console_clear();
